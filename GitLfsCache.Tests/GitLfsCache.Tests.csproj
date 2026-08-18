@@ -8,8 +8,10 @@
     <!-- CA1707: underscores in test method names. CA1515: test classes must be public for MSTest
          discovery. CS1591: no XML documentation required in test code. CA2007: the test host has no
          synchronization context, so ConfigureAwait cannot change behavior here and only adds noise
-         to every await in a test. -->
-    <NoWarn>$(NoWarn);CA1707;CA1515;CS1591;CA2007</NoWarn>
+         to every await in a test. CA2234: a request path reads better as a string than wrapped in a
+         relative Uri, and these are tests, not a public API. CA1826: indexer-versus-LINQ micro
+         optimizations do not matter on a handful of recorded requests. -->
+    <NoWarn>$(NoWarn);CA1707;CA1515;CS1591;CA2007;CA2234;CA1826</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,6 +21,7 @@
   <ItemGroup>
     <PackageReference Include="Testably.Abstractions.Testing" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
   </ItemGroup>
 
   <ItemGroup>

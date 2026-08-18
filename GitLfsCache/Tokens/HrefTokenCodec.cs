@@ -3,6 +3,7 @@
 namespace ktsu.GitLfsCache.Tokens;
 
 using System.Buffers.Text;
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -80,7 +81,10 @@ public sealed class HrefTokenCodec(
 	}
 
 	/// <inheritdoc />
-	public bool TryDecode(string? encoded, out HrefToken? token, out string? failureReason)
+	public bool TryDecode(
+		string? encoded,
+		[NotNullWhen(true)] out HrefToken? token,
+		out string? failureReason)
 	{
 		token = null;
 

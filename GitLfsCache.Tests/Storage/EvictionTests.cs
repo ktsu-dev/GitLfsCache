@@ -140,7 +140,8 @@ public class EvictionTests
 		time.Advance(TimeSpan.FromHours(1));
 		await StoreAsync(store, 100, 'b');
 
-		Assert.IsTrue(store.TryOpenRead("github", held, out Stream? stream, out long _));
+		Stream? stream = store.OpenRead("github", held, out long _);
+		Assert.IsNotNull(stream);
 
 		EvictionResult result = policy.Evict();
 

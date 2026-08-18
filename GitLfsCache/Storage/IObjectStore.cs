@@ -13,12 +13,16 @@ public interface IObjectStore
 	/// <summary>
 	/// Opens a published object for reading.
 	/// </summary>
+	/// <remarks>
+	/// Returns the stream rather than following the <c>Try</c> pattern with an out parameter. A
+	/// <c>Try</c> method that hands back a disposable cannot be wrapped in a <c>using</c> at the call
+	/// site, which makes it easy to leak a file handle on an early return.
+	/// </remarks>
 	/// <param name="upstream">The upstream key.</param>
 	/// <param name="oid">The object id.</param>
-	/// <param name="stream">The readable stream, or null when the object is absent.</param>
-	/// <param name="length">The object length in bytes, or zero when absent.</param>
-	/// <returns><see langword="true"/> when the object was opened.</returns>
-	public bool TryOpenRead(string upstream, string oid, out Stream? stream, out long length);
+	/// <param name="length">The object length in bytes, or zero when the object is absent.</param>
+	/// <returns>A readable stream, or null when the object is not stored.</returns>
+	public Stream? OpenRead(string upstream, string oid, out long length);
 
 	/// <summary>
 	/// Creates a staging file to write an object into.

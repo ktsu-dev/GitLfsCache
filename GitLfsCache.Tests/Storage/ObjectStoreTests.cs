@@ -68,7 +68,8 @@ public class ObjectStoreTests
 
 		string oid = await StoreAsync(store, "github", "hello lfs");
 
-		Assert.IsTrue(store.TryOpenRead("github", oid, out Stream? stream, out long length));
+		Stream? stream = store.OpenRead("github", oid, out long length);
+
 		Assert.IsNotNull(stream);
 		Assert.AreEqual(content.Length, length);
 
@@ -144,14 +145,10 @@ public class ObjectStoreTests
 	{
 		(ObjectStore store, _, _) = Create();
 
-		bool opened = store.TryOpenRead("github", new string('a', 64), out Stream? stream, out long length);
+		using Stream? stream = store.OpenRead("github", new string('a', 64), out long length);
 
-		using (stream)
-		{
-			Assert.IsFalse(opened);
-			Assert.IsNull(stream);
-			Assert.AreEqual(0L, length);
-		}
+		Assert.IsNull(stream);
+		Assert.AreEqual(0L, length);
 	}
 
 	[TestMethod]
@@ -175,12 +172,9 @@ public class ObjectStoreTests
 	{
 		(ObjectStore store, _, _) = Create();
 
-		bool opened = store.TryOpenRead("github", oid, out Stream? stream, out long _);
+		using Stream? stream = store.OpenRead("github", oid, out long _);
 
-		using (stream)
-		{
-			Assert.IsFalse(opened);
-		}
+		Assert.IsNull(stream);
 	}
 
 	[TestMethod]

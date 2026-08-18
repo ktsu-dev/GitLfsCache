@@ -44,14 +44,13 @@ public sealed class ObjectStore(
 	public long TotalBytes => Interlocked.Read(ref _totalBytes);
 
 	/// <inheritdoc />
-	public bool TryOpenRead(string upstream, string oid, out Stream? stream, out long length)
+	public Stream? OpenRead(string upstream, string oid, out long length)
 	{
-		stream = null;
 		length = 0;
 
 		if (!IsValidUpstream(upstream) || !IsValidOid(oid))
 		{
-			return false;
+			return null;
 		}
 
 		AbsoluteFilePath path = ObjectPath(upstream, oid);
@@ -60,28 +59,24 @@ public sealed class ObjectStore(
 		{
 			if (!fileSystem.File.Exists(path))
 			{
-				return false;
+				return null;
 			}
 
 			length = fileSystem.FileInfo.New(path).Length;
 
 			// FileShare.Delete lets an eviction sweep remove this file while it is being served,
 			// which Windows otherwise refuses outright.
-			stream = fileSystem.FileStream.New(
+			return fileSystem.FileStream.New(
 				path,
 				FileMode.Open,
 				FileAccess.Read,
 				FileShare.ReadWrite | FileShare.Delete);
-
-			return true;
 		}
 		catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
 		{
 			StoreLog.CouldNotOpenObject(logger, failure, oid, upstream);
-			stream?.Dispose();
-			stream = null;
 			length = 0;
-			return false;
+			return null;
 		}
 	}
 

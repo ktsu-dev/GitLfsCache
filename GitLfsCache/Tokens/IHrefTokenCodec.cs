@@ -2,6 +2,8 @@
 
 namespace ktsu.GitLfsCache.Tokens;
 
+using System.Diagnostics.CodeAnalysis;
+
 /// <summary>
 /// Encodes and decodes the opaque token carried by a rewritten transfer URL.
 /// </summary>
@@ -24,5 +26,8 @@ public interface IHrefTokenCodec
 	/// part of a token it got wrong helps only the caller who is guessing.
 	/// </param>
 	/// <returns><see langword="true"/> when the token is authentic and unexpired.</returns>
-	public bool TryDecode(string? encoded, out HrefToken? token, out string? failureReason);
+	public bool TryDecode(
+		string? encoded,
+		[NotNullWhen(true)] out HrefToken? token,
+		out string? failureReason);
 }
