@@ -651,6 +651,3 @@ Temporary Items
 
 # ImGui.ini files
 imgui.ini
-
-# Local packaging and container output
-staging/
