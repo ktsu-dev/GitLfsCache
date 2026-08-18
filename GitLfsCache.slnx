@@ -5,5 +5,6 @@
   </Configurations>
   <Project Path="GitLfsCache/GitLfsCache.csproj" />
   <Project Path="GitLfsCache.Tool/GitLfsCache.Tool.csproj" />
+  <Project Path="GitLfsCache.Service/GitLfsCache.Service.csproj" />
   <Project Path="GitLfsCache.Tests/GitLfsCache.Tests.csproj" />
 </Solution>

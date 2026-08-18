@@ -202,12 +202,17 @@ jobs:
 
       # No -r flag: ContainerRuntimeIdentifiers in the project file lists linux-x64 and linux-arm64,
       # and the SDK turns that into a multi-architecture image index.
+      #
+      # -m:1 is required, not a preference. The per-runtime inner builds are not given
+      # runtime-qualified intermediate paths, so building them in parallel makes both write
+      # obj/Release/net10.0/*.FileListAbsolute.txt at once and the publish fails on a locked file.
       - name: Publish Container Image
         shell: pwsh
         run: |
-          dotnet publish GitLfsCache.Tool/GitLfsCache.Tool.csproj `
+          dotnet publish GitLfsCache.Service/GitLfsCache.Service.csproj `
             --configuration Release `
             -t:PublishContainer `
+            -m:1 `
             -p:ContainerRegistry=ghcr.io `
             -p:ContainerImageTags='"${{ needs.build.outputs.version }};latest"'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

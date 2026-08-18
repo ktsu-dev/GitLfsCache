@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Sdk Name="ktsu.Sdk" />
+
+  <PropertyGroup>
+    <!-- The framework and output type are set here rather than by pulling in ktsu.Sdk.ConsoleApp. That
+         variant contributes exactly these two values, and this project already has to override the core
+         SDK's eight-framework default anyway, so the extra SDK dependency would buy nothing. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- This project exists only to build the container image, and it exists separately from
+         GitLfsCache.Tool because the two requirements are genuinely incompatible.
+
+         A multi-architecture image needs RuntimeIdentifiers set so restore produces assets for each
+         Linux runtime. Setting that on a PackAsTool project makes `dotnet pack` emit one RID-specific
+         tool package per entry alongside the real one, which was measured: it produced
+         ktsu.GitLfsCache.Tool.linux-x64, ktsu.GitLfsCache.Tool.linux-arm64 and the intended package.
+         Nobody wants to install a linux-arm64 dotnet tool.
+
+         Program.cs is linked from the tool project rather than duplicated, so the tool and the
+         container are compiled from the same source and cannot drift. -->
+    <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
+
+    <!-- Nothing consumes this as a package; the tool project is the published artifact. -->
+    <IsPackable>false</IsPackable>
+
+    <AssemblyName>ktsu.GitLfsCache.Service</AssemblyName>
+
+    <EnableSdkContainerSupport>true</EnableSdkContainerSupport>
+    <ContainerBaseImage>mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled</ContainerBaseImage>
+    <ContainerRuntimeIdentifiers>linux-x64;linux-arm64</ContainerRuntimeIdentifiers>
+    <ContainerRepository>ktsu-dev/gitlfscache</ContainerRepository>
+    <ContainerPort>8080</ContainerPort>
+
+    <!-- ktsu.Sdk reads PROJECT_URL.url whole, so the derived value is the Windows shortcut file's
+         "[InternetShortcut] URL=..." text. SDK 10.0.400 rejects that outright when it builds the
+         org.opencontainers.image.url label. -->
+    <PackageProjectUrl>https://github.com/ktsu-dev/GitLfsCache</PackageProjectUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\GitLfsCache.Tool\Program.cs" Link="Program.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GitLfsCache\GitLfsCache.csproj" />
+    <PackageReference Include="Polyfill" PrivateAssets="all" />
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="ktsu.Essentials" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\GitLfsCache.Tool\appsettings*.json" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

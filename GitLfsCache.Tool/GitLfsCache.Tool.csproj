@@ -2,18 +2,6 @@
   <Sdk Name="ktsu.Sdk" />
   <Sdk Name="ktsu.Sdk.Tool" />
 
-  <PropertyGroup>
-    <!-- Container publishing. ktsu.Sdk.Tool clears RuntimeIdentifiers because under PackAsTool the
-         SDK turns each entry into a separate RID-specific tool package, and those race over one
-         intermediate output directory. ContainerRuntimeIdentifiers is a distinct property that
-         drives the multi-architecture image index instead, so the two do not collide. -->
-    <EnableSdkContainerSupport>true</EnableSdkContainerSupport>
-    <ContainerBaseImage>mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled</ContainerBaseImage>
-    <ContainerRuntimeIdentifiers>linux-x64;linux-arm64</ContainerRuntimeIdentifiers>
-    <ContainerRepository>ktsu-dev/gitlfscache</ContainerRepository>
-    <ContainerPort>8080</ContainerPort>
-  </PropertyGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\GitLfsCache\GitLfsCache.csproj" />
     <PackageReference Include="Polyfill" PrivateAssets="all" />
