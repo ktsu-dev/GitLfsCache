@@ -1,5 +1,24 @@
 # ktsu.GitLfsCache Implementation Plan
 
+> **Status: complete.** Every task below was implemented, and the work then continued past where this
+> document stops. Tasks 1 to 7 are written out here in full detail; the remaining components (eviction
+> and store maintenance, upstream client, fetch coalescer, endpoints, dependency injection, metrics,
+> the tool host, the kustomize base, and the container publish job) were built directly against the
+> spec rather than planned out first, once the pattern each task follows was established.
+>
+> The as-built record of where the code departed from the design lives in the spec's **As built**
+> section, not here.
+>
+> **What shipped:** 194 tests passing, zero build warnings, the `gitlfscache` tool verified live
+> against the real GitHub Batch API, a multi-architecture container image publishing from CI, and a
+> kustomize base validated with `kubectl kustomize`.
+>
+> **Known deviations from the plan as written below:** the file header is
+> `// Copyright (c) 2023-2026 ktsu-dev contributors` derived from the generated `COPYRIGHT.md`, not the
+> form guessed in the Global Constraints; line endings are LF, per the repository's own `.gitattributes`
+> and `.editorconfig`, not CRLF; and the pinned package versions were all higher than the table below
+> predicted (`ktsu.Sdk` 2.27.0, `ktsu.Essentials` 2.0.0, `ktsu.Semantics.Paths` 3.0.0).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a caching Git LFS proxy that relays every Batch API call upstream, rewrites the returned transfer URLs to point at itself, and serves object bytes from a local content-addressed store, shipping as both a dotnet tool and a container image for Kubernetes.
@@ -14,11 +33,11 @@
 
 Every task's requirements implicitly include this section.
 
-- Tabs for indentation in C# files, never spaces. CRLF line endings.
+- Tabs for indentation in C# files, never spaces. **LF line endings** (the repository's `.gitattributes` normalizes to LF on every platform and `.editorconfig` sets `end_of_line = lf`).
 - File-scoped namespaces (`namespace ktsu.GitLfsCache;`), with `using` directives placed *after* the namespace declaration.
 - Braces on all control flow statements, always. Explicit accessibility modifiers on every member.
 - No `this.` qualifiers. Nullable reference types enabled. Warnings treated as errors.
-- Copyright header on every file: `// Copyright (c) 2023-2026 ktsu-dev contributors`
+- Copyright header on every file, taken from the generated `COPYRIGHT.md`, which the SDK's style sync feeds into `file_header_template`: `// Copyright (c) 2023-2026 ktsu-dev contributors`. Do not run `make-license.ps1` locally to produce it; CI owns that file and produced a different value than a local run does.
 - No global suppressions, including in project properties. Use targeted `[SuppressMessage]` with a justification, falling back to a commented preprocessor directive only if no attribute exists.
 - `Ensure.NotNull()` from Polyfill for parameter validation. Prefer Polyfill over custom polyfills.
 - **Never run `dotnet format`.** It corrupts multi-target projects and this repository forbids it.
