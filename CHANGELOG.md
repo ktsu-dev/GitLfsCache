@@ -1,5 +1,6 @@
 ## v1.1.0 (major)
 
+- [minor] Add stream tee and hashing stream for single-pass object verification ([@Matthew Edmondson](https://github.com/Matthew Edmondson))
 - [minor] Add batch response rewriter preserving unknown properties ([@Matthew Edmondson](https://github.com/Matthew Edmondson))
 - [minor] Add authenticated href token codec with key rotation ([@Matthew Edmondson](https://github.com/Matthew Edmondson))
 - [patch] Align file headers with the generated COPYRIGHT.md ([@Matthew Edmondson](https://github.com/Matthew Edmondson))
