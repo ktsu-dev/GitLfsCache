@@ -1,6 +1,7 @@
-## v1.3.0 (minor)
+## v1.4.0 (minor)
 
-Changes since v1.2.0:
+Changes since v1.3.0:
 
-- [minor] Add least-recently-used eviction, store maintenance, and startup checks ([@Matthew Edmondson](https://github.com/Matthew Edmondson))
+- [minor] Add fetch coalescer so one upstream fetch serves concurrent misses ([@Matthew Edmondson](https://github.com/Matthew Edmondson))
+- [minor] Add upstream client and pure request builders ([@Matthew Edmondson](https://github.com/Matthew Edmondson))
 
