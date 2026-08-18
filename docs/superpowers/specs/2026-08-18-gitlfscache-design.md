@@ -1,7 +1,7 @@
 # ktsu.GitLfsCache Design
 
 Date: 2026-08-18
-Status: approved, ready for implementation planning
+Status: implemented. See the As built section for where the code departed from this document.
 
 ## Purpose
 
@@ -63,11 +63,11 @@ It buys three things at once:
 
 Construction, in order:
 
-1. Serialize the payload as JSON through an Essentials `ISerializationProvider`.
+1. Serialize the payload as JSON with `System.Text.Json`. An Essentials `ISerializationProvider` would add indirection with no benefit here: the payload is internal to the proxy and its format is never a configurable choice.
 2. Derive an encryption key and a separate authentication key from the configured key using `HKDF`.
 3. Encrypt with Essentials' `Aes` provider and a fresh initialization vector per token.
 4. Compute `HMACSHA256` over the initialization vector and the ciphertext.
-5. Concatenate version byte, key identifier, initialization vector, ciphertext, and tag, then Base64url encode through Essentials' `Base64` provider.
+5. Concatenate version byte, key identifier, initialization vector, ciphertext, and tag, then encode with `System.Buffers.Text.Base64Url`. Essentials' `Base64` provider is not used here because it emits standard base64, whose `+`, `/`, and `=` characters are not URL-safe.
 
 Verification reverses this, comparing tags with `CryptographicOperations.FixedTimeEquals` before attempting decryption, and rejecting an expired payload.
 
@@ -81,7 +81,9 @@ Essentials' `Aes` provider uses `Aes.Create()` defaults, meaning CBC with PKCS7 
 2. If the request carries a `Range` header and the object is not stored, forward the range upstream and stream the response without storing anything. A partial object must never enter the store.
 3. On a store hit, set the object's last access time and stream from disk with range support.
 4. On a miss, become the leader or a follower for that oid, per Concurrent misses below.
-5. A leader opens the upstream fetch using the action inside the token, tees the bytes to the client and to a staging file at once, hashes the staging file with Essentials' `SHA256`, compares it to the oid, and publishes by atomic rename only on a match.
+5. A leader opens the upstream fetch using the action inside the token, tees the bytes to the client and to a staging file at once, digests them as they are written, compares the digest to the oid, and publishes by atomic rename only on a match.
+
+Verification digests the stream as it is written rather than hashing the finished staging file. Essentials 2.0.0's `IHashProvider` offers only a synchronous `TryHash(Stream, ...)` with no incremental or async-stream form, so hashing afterwards would mean reading a multi-gigabyte object a second time while blocking a thread. Digesting during the write costs one pass and no blocking. SHA256 is therefore taken from the base class library's `IncrementalHash`, and is hard-coded rather than injected because Git LFS defines object ids as SHA256 digests, so there is no alternative to select.
 
 An oid mismatch discards the staging file, logs it, and fails that request. Unverified bytes are never published and never served as a hit.
 
@@ -104,7 +106,7 @@ Each unit has one purpose, a narrow interface, and can be tested without the oth
 | `UpstreamRegistry` | Maps an upstream key to a base URL, rejects unknown keys | configuration |
 | `IHrefTokenCodec` | Encrypts, authenticates, decodes, and expires the token | Essentials `IEncryptionProvider`, `IEncodingProvider`, `ISerializationProvider` |
 | `BatchRewriter` | Pure transform from an upstream batch response plus request context to a rewritten response, with no input or output of its own | `IHrefTokenCodec` |
-| `IObjectStore` | `TryOpenRead`, `OpenStaging`, `PublishAsync`, `Touch`, `EnumerateAsync` over a content-addressed tree | Essentials `IFileSystemProvider`, `IHashProvider`, `ktsu.Semantics.Paths` |
+| `IObjectStore` | `OpenRead`, `OpenStaging`, `PublishAsync`, `Touch`, `Enumerate` over a content-addressed tree | `IFileSystem`, `ktsu.Semantics.Paths` |
 | `IEvictionPolicy` | Selects objects to delete when the byte budget is exceeded | `IObjectStore` |
 | `FetchCoalescer` | Ensures one upstream fetch per oid in flight | `IObjectStore` |
 | `UpstreamClient` | Relays batch calls, opens object fetches and upload relays, applies token headers | `HttpClient` |
@@ -285,11 +287,36 @@ Two things could invalidate part of this design, and both are cheap to check ear
 
 **Ingress specifics.** The request-buffering annotations in the kustomize base are nginx-specific. A different ingress controller needs its own equivalent, and the failure mode if it is missed is silent: uploads work for small objects and fail at whatever size the controller buffers to. This belongs in the README as a deployment prerequisite, not only in the manifests.
 
+## As built
+
+Four places where the implementation departed from this document, recorded here rather than left for a
+reader to discover by diffing:
+
+- **Base64url comes from the base class library**, not Essentials' Base64 provider, which emits
+  standard base64 and is not URL-safe. Noted inline above.
+- **Objects are digested while streaming** rather than hashed from the finished staging file, because
+  Essentials 2.0.0 has no incremental or async-stream hash. Noted inline above.
+- **`IObjectStore` depends on `IFileSystem`** rather than Essentials' `IFileSystemProvider`. That
+  interface is a marker over `System.IO.Abstractions.IFileSystem`, and depending on the underlying
+  interface lets a mock filesystem stand in directly with no adapter. The Essentials native provider
+  is still what satisfies it at runtime.
+- **The store reader returns the stream** instead of following the `Try` pattern with an out
+  parameter. A `Try` method that hands back a disposable cannot be wrapped in a `using` at the call
+  site, which makes leaking a file handle on an early return easy.
+
+The `ktsu.Essentials.HashProviders.SHA256` and serialization provider packages were consequently not
+needed. Essentials is still used for AES encryption, the native filesystem provider, and
+`UserDirectories`.
+
 ## Deferred
 
 Recorded so they are choices rather than omissions:
 
 - `ktsu.Sdk.Service`, extracted from this project's proven inline properties.
+- Replacing the encrypt-then-authenticate construction with `AesGcm`, which is one primitive doing
+  both jobs instead of three derived keys and a separate tag comparison. The current construction is
+  correct, but it has more moving parts than the problem needs, and it exists mainly to keep the
+  encryption inside Essentials.
 - A keyed-hash provider contributed to Essentials, removing the direct `HMACSHA256` dependency.
 - Followers tailing the leader's staging file so concurrent misses stream rather than wait.
 - A single shared object tree across upstreams, trading blast radius for deduplication.
