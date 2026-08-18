@@ -18,6 +18,8 @@
     <ProjectReference Include="..\GitLfsCache\GitLfsCache.csproj" />
     <PackageReference Include="Polyfill" PrivateAssets="all" />
     <PackageReference Include="System.CommandLine" />
+    <!-- Used directly for UserDirectories, so referenced rather than relied on transitively. -->
+    <PackageReference Include="ktsu.Essentials" />
   </ItemGroup>
 
   <ItemGroup>
