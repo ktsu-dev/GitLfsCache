@@ -1,3 +1,9 @@
+## v1.6.0 (minor)
+
+Changes since v1.5.0:
+
+- [minor] Add the gitlfscache tool host with friendly flags ([@Matthew Edmondson](https://github.com/Matthew Edmondson))
+
 ## v1.5.0 (minor)
 
 Changes since v1.4.0:

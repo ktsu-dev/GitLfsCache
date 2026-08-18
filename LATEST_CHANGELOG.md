@@ -1,6 +1,6 @@
-## v1.5.0 (minor)
+## v1.6.0 (minor)
 
-Changes since v1.4.0:
+Changes since v1.5.0:
 
-- [minor] Add endpoints, DI wiring, metrics, and end-to-end integration tests ([@Matthew Edmondson](https://github.com/Matthew Edmondson))
+- [minor] Add the gitlfscache tool host with friendly flags ([@Matthew Edmondson](https://github.com/Matthew Edmondson))
 
