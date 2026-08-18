@@ -281,8 +281,20 @@ public sealed class ObjectStore(
 	}
 
 	/// <inheritdoc />
-	public void RecomputeTotalBytes() =>
-		Interlocked.Exchange(ref _totalBytes, Enumerate().Sum(stored => stored.Size));
+	public int RecomputeTotalBytes()
+	{
+		int count = 0;
+		long bytes = 0;
+
+		foreach (StoredObject stored in Enumerate())
+		{
+			count++;
+			bytes += stored.Size;
+		}
+
+		Interlocked.Exchange(ref _totalBytes, bytes);
+		return count;
+	}
 
 	private bool TryDeleteFile(AbsoluteFilePath path)
 	{

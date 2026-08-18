@@ -71,6 +71,12 @@ public interface IObjectStore
 	/// <returns><see langword="true"/> when the file was deleted.</returns>
 	public bool TryDeleteStaging(StagedFile staged);
 
-	/// <summary>Rebuilds the byte counter by scanning the store.</summary>
-	public void RecomputeTotalBytes();
+	/// <summary>
+	/// Rebuilds the byte counter by scanning the store.
+	/// </summary>
+	/// <returns>
+	/// How many objects the scan found. Returned rather than discarded so a caller that wants to
+	/// report the store's contents does not have to walk it a second time.
+	/// </returns>
+	public int RecomputeTotalBytes();
 }
