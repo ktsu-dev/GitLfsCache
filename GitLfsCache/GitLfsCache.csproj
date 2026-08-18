@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Sdk Name="ktsu.Sdk" />
+
+  <PropertyGroup>
+    <!-- An ASP.NET Core component has no reason to target netstandard2.0, and doing so would force
+         Polyfill workarounds through the streaming code for no consumer. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- This is what lets an ASP.NET Core component build under plain Microsoft.NET.Sdk. An
+         <Sdk Name="..." /> element cannot substitute for the Microsoft.NET.Sdk.Web outer attribute,
+         and this library needs none of what that SDK adds beyond the framework reference: no
+         wwwroot, no static web assets, no scoped CSS. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Polyfill" PrivateAssets="all" />
+    <PackageReference Include="ktsu.Essentials" />
+    <PackageReference Include="ktsu.Essentials.EncryptionProviders.Aes" />
+    <PackageReference Include="ktsu.Essentials.HashProviders.SHA256" />
+    <PackageReference Include="ktsu.Essentials.FileSystemProviders.Native" />
+    <PackageReference Include="ktsu.Semantics.Paths" />
+  </ItemGroup>
+</Project>

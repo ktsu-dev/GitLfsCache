@@ -1,0 +1,18 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Polyfill" Version="11.2.0" />
+    <PackageVersion Include="ktsu.Essentials" Version="2.0.0" />
+    <PackageVersion Include="ktsu.Essentials.EncryptionProviders.Aes" Version="2.0.0" />
+    <PackageVersion Include="ktsu.Essentials.HashProviders.SHA256" Version="2.0.0" />
+    <PackageVersion Include="ktsu.Essentials.FileSystemProviders.Native" Version="2.0.0" />
+    <PackageVersion Include="ktsu.Semantics.Paths" Version="3.0.0" />
+    <PackageVersion Include="System.CommandLine" Version="2.0.11" />
+  </ItemGroup>
+  <ItemGroup Label="Test only">
+    <PackageVersion Include="Testably.Abstractions.Testing" Version="7.0.2" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.9.0" />
+  </ItemGroup>
+</Project>
