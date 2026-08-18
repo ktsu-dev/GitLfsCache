@@ -28,4 +28,12 @@
     <PackageReference Include="ktsu.Semantics.Strings" />
     <PackageReference Include="Testably.Abstractions.FileSystem.Interface" />
   </ItemGroup>
+  <PropertyGroup>
+    <!-- ktsu.Sdk derives PackageProjectUrl by reading PROJECT_URL.url in its entirety, so the value
+         becomes the Windows shortcut file's "[InternetShortcut] URL=..." text rather than a URL. NuGet
+         silently drops <projectUrl> from the nuspec as a result, and container publishing fails
+         outright because the generated org.opencontainers.image.url label name ends up containing it.
+         Set explicitly until the SDK parses the URL out of that file. -->
+    <PackageProjectUrl>https://github.com/ktsu-dev/GitLfsCache</PackageProjectUrl>
+  </PropertyGroup>
 </Project>
