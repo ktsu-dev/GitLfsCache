@@ -27,6 +27,18 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 
 		List<string> failures = [];
 
+		ValidateUpstreams(options, failures);
+		ValidateTokens(options, failures);
+		ValidateStore(options.Store, failures);
+		ValidateFetch(options.Fetch, failures);
+
+		return failures.Count == 0
+			? ValidateOptionsResult.Success
+			: ValidateOptionsResult.Fail(failures);
+	}
+
+	private static void ValidateUpstreams(GitLfsCacheOptions options, List<string> failures)
+	{
 		if (options.Upstreams.Count == 0)
 		{
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Upstreams must contain at least one upstream.");
@@ -46,7 +58,10 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 			failures.Add(
 				$"{GitLfsCacheOptions.SectionName}:PublicBaseUrl must be an absolute http or https URL when set, but was '{options.PublicBaseUrl}'.");
 		}
+	}
 
+	private static void ValidateTokens(GitLfsCacheOptions options, List<string> failures)
+	{
 		if (options.TokenKeys.Count == 0)
 		{
 			failures.Add(
@@ -70,50 +85,52 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 		{
 			failures.Add($"{GitLfsCacheOptions.SectionName}:TokenLifetime must be greater than zero.");
 		}
+	}
 
-		if (string.IsNullOrWhiteSpace(options.Store.Root))
+	private static void ValidateStore(StoreOptions store, List<string> failures)
+	{
+		if (string.IsNullOrWhiteSpace(store.Root))
 		{
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Store:Root must be set to an absolute directory path.");
 		}
-		else if (!Path.IsPathFullyQualified(options.Store.Root))
+		else if (!Path.IsPathFullyQualified(store.Root))
 		{
 			// The store converts this to an AbsoluteDirectoryPath, which refuses a relative or
 			// drive-less path. Catching it here turns a constructor exception into a startup message
 			// that names the setting and shows the value.
 			failures.Add(
-				$"{GitLfsCacheOptions.SectionName}:Store:Root must be a fully qualified absolute path for this platform, but was '{options.Store.Root}'.");
+				$"{GitLfsCacheOptions.SectionName}:Store:Root must be a fully qualified absolute path for this platform, but was '{store.Root}'.");
 		}
 
-		if (!SizeParser.TryParse(options.Store.MaxSize, out long maxSizeBytes) || maxSizeBytes <= 0)
+		if (!SizeParser.TryParse(store.MaxSize, out long maxSizeBytes) || maxSizeBytes <= 0)
 		{
 			failures.Add(
-				$"{GitLfsCacheOptions.SectionName}:Store:MaxSize must be a positive byte size such as 500GB or 500Gi, but was '{options.Store.MaxSize}'.");
+				$"{GitLfsCacheOptions.SectionName}:Store:MaxSize must be a positive byte size such as 500GB or 500Gi, but was '{store.MaxSize}'.");
 		}
 
-		if (options.Store.LowWaterMark is <= 0 or >= 1)
+		if (store.LowWaterMark is <= 0 or >= 1)
 		{
 			failures.Add(
-				$"{GitLfsCacheOptions.SectionName}:Store:LowWaterMark must be greater than zero and less than one, but was {options.Store.LowWaterMark}.");
+				$"{GitLfsCacheOptions.SectionName}:Store:LowWaterMark must be greater than zero and less than one, but was {store.LowWaterMark}.");
 		}
 
-		if (options.Store.StagingMaxAge <= TimeSpan.Zero)
+		if (store.StagingMaxAge <= TimeSpan.Zero)
 		{
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Store:StagingMaxAge must be greater than zero.");
 		}
 
-		if (options.Store.MaintenanceInterval <= TimeSpan.Zero)
+		if (store.MaintenanceInterval <= TimeSpan.Zero)
 		{
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Store:MaintenanceInterval must be greater than zero.");
 		}
+	}
 
-		if (options.Fetch.FollowerTimeout <= TimeSpan.Zero)
+	private static void ValidateFetch(FetchOptions fetch, List<string> failures)
+	{
+		if (fetch.FollowerTimeout <= TimeSpan.Zero)
 		{
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Fetch:FollowerTimeout must be greater than zero.");
 		}
-
-		return failures.Count == 0
-			? ValidateOptionsResult.Success
-			: ValidateOptionsResult.Fail(failures);
 	}
 
 	/// <summary>

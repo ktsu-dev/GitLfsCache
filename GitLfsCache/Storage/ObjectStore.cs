@@ -327,39 +327,12 @@ public sealed class ObjectStore(
 	/// rather than the only guard. It is still worth having: it is the difference between a bug in the
 	/// token layer being a cache miss and being a path traversal.
 	/// </remarks>
-	private static bool IsValidOid([NotNullWhen(true)] string? oid)
-	{
-		if (oid is null || oid.Length != OidLength)
-		{
-			return false;
-		}
+	private static bool IsValidOid([NotNullWhen(true)] string? oid) =>
+		oid is not null && oid.Length == OidLength && oid.All(char.IsAsciiHexDigitLower);
 
-		foreach (char character in oid)
-		{
-			if (character is not ((>= '0' and <= '9') or (>= 'a' and <= 'f')))
-			{
-				return false;
-			}
-		}
+	private static bool IsValidUpstream([NotNullWhen(true)] string? upstream) =>
+		!string.IsNullOrEmpty(upstream) && upstream.All(IsUpstreamCharacter);
 
-		return true;
-	}
-
-	private static bool IsValidUpstream([NotNullWhen(true)] string? upstream)
-	{
-		if (string.IsNullOrEmpty(upstream))
-		{
-			return false;
-		}
-
-		foreach (char character in upstream)
-		{
-			if (character is not ((>= '0' and <= '9') or (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or '-' or '_'))
-			{
-				return false;
-			}
-		}
-
-		return true;
-	}
+	private static bool IsUpstreamCharacter(char character) =>
+		char.IsAsciiLetterOrDigit(character) || character is '-' or '_';
 }

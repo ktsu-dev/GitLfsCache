@@ -86,13 +86,11 @@ public static class UpstreamRequests
 		HttpRequestMessage request = new(HttpMethod.Get, token.UpstreamHref);
 		ApplyTokenHeaders(request, token);
 
-		if (!string.IsNullOrEmpty(range))
+		// Parsed rather than added raw, so a malformed client range is dropped here instead of being
+		// forwarded for upstream to reject.
+		if (!string.IsNullOrEmpty(range) && RangeHeaderValue.TryParse(range, out RangeHeaderValue? parsed))
 		{
-			// Parsed rather than added raw so a malformed client range fails here instead of upstream.
-			if (RangeHeaderValue.TryParse(range, out RangeHeaderValue? parsed))
-			{
-				request.Headers.Range = parsed;
-			}
+			request.Headers.Range = parsed;
 		}
 
 		return request;
