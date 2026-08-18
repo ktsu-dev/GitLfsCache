@@ -1,0 +1,17 @@
+{
+  "transfer": "basic",
+  "objects": [
+    {
+      "oid": "9a1f2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8",
+      "size": 12345,
+      "authenticated": true,
+      "actions": {
+        "download": {
+          "href": "https://objects.githubusercontent.com/storage/abc?sig=xyz",
+          "expires_in": 3600
+        }
+      }
+    }
+  ],
+  "hash_algo": "sha256"
+}

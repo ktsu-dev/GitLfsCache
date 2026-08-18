@@ -1,0 +1,19 @@
+{
+  "transfer": "basic",
+  "objects": [
+    {
+      "oid": "1111111111111111111111111111111111111111111111111111111111111111",
+      "size": 500,
+      "actions": {
+        "download": {
+          "href": "https://dev.azure.com/org/_apis/lfs/objects/1111",
+          "header": {
+            "Authorization": "Bearer ado-secret-token",
+            "X-TFS-FedAuthRedirect": "Suppress"
+          },
+          "expires_at": "2026-08-18T13:00:00Z"
+        }
+      }
+    }
+  ]
+}

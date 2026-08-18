@@ -1,0 +1,19 @@
+{
+  "transfer": "basic",
+  "objects": [
+    {
+      "oid": "2222222222222222222222222222222222222222222222222222222222222222",
+      "size": 900,
+      "actions": {
+        "upload": {
+          "href": "https://objects.githubusercontent.com/upload/2222?sig=put",
+          "header": { "Authorization": "Bearer upload-secret" }
+        },
+        "verify": {
+          "href": "https://github.com/owner/repo.git/info/lfs/objects/verify",
+          "header": { "Authorization": "Bearer verify-secret" }
+        }
+      }
+    }
+  ]
+}

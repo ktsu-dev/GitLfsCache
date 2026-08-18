@@ -1,0 +1,17 @@
+{
+  "transfer": "basic",
+  "objects": [
+    {
+      "oid": "3333333333333333333333333333333333333333333333333333333333333333",
+      "size": 10,
+      "actions": {
+        "download": { "href": "https://upstream.example/ok" }
+      }
+    },
+    {
+      "oid": "4444444444444444444444444444444444444444444444444444444444444444",
+      "size": 20,
+      "error": { "code": 404, "message": "Object does not exist" }
+    }
+  ]
+}
