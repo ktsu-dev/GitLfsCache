@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitlfscache-config
+  labels:
+    app.kubernetes.io/name: gitlfscache
+data:
+  # Double underscore is the environment-variable form of a configuration section separator, so these
+  # map onto the same options the appsettings file binds.
+  GitLfsCache__Store__MaxSize: 50GB
+  GitLfsCache__Store__LowWaterMark: "0.9"
+  GitLfsCache__Store__StagingMaxAge: "06:00:00"
+  GitLfsCache__Store__MaintenanceInterval: "00:05:00"
+  GitLfsCache__TokenLifetime: "01:00:00"
+  GitLfsCache__Fetch__FollowerTimeout: "00:05:00"
+
+  # The URL clients use. Leave it unset to derive each transfer URL from the incoming request, which
+  # requires the ingress to send X-Forwarded-Proto and X-Forwarded-Host. Setting it explicitly is the
+  # safer choice, because only the operator knows for certain what clients addressed.
+  GitLfsCache__PublicBaseUrl: https://lfs-cache.example.com
+
+  # One entry per upstream. The key is the first path segment clients address, so this upstream is
+  # reached at https://lfs-cache.example.com/github/<owner>/<repo>.git/info/lfs
+  GitLfsCache__Upstreams__github__BaseUrl: https://github.com

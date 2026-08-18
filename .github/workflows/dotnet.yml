@@ -163,48 +163,54 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  winget:
-    name: Update Winget Manifests
+  container:
+    name: Publish Container Image
     needs: build
     if: needs.build.outputs.should_release == 'true'
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
-      contents: write
+      contents: read
+      packages: write # For pushing to the GitHub Container Registry
 
     steps:
       - name: Checkout Release Commit
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.build.outputs.release_hash }}
-          fetch-depth: 0 # Full history for better auto-detection
 
       - name: Setup .NET SDK ${{ env.DOTNET_VERSION }}
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}.x
 
-      # PATH is not shared between jobs, so this job installs the tool for itself.
-      - name: Install KtsuBuild
-        shell: pwsh
-        run: |
-          dotnet tool install ktsu.KtsuBuild.Tool --tool-path "${{ runner.temp }}/ktsubuild"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "${{ runner.temp }}/ktsubuild" >> $env:GITHUB_PATH
-
-      - name: Update Winget Manifests
+      # The SDK's container support reads registry credentials from the Docker config file but does
+      # not need a Docker daemon, so the credential is written directly rather than by shelling out
+      # to `docker login`. That keeps this job working on a runner with no Docker available, and it
+      # is why a Windows runner can publish a Linux image at all.
+      - name: Authenticate to GitHub Container Registry
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ktsubuild winget generate --version "${{ needs.build.outputs.version }}" --workspace "${{ github.workspace }}" --verbose
+          $credential = [Convert]::ToBase64String(
+            [Text.Encoding]::UTF8.GetBytes("${{ github.actor }}:$env:REGISTRY_TOKEN"))
+          $config = @{ auths = @{ "ghcr.io" = @{ auth = $credential } } }
+          $directory = Join-Path $env:USERPROFILE ".docker"
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          $config | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $directory "config.json") -Encoding utf8
 
-      - name: Upload Updated Manifests
-        uses: actions/upload-artifact@v7
-        with:
-          name: winget-manifests-${{ needs.build.outputs.version }}
-          path: winget/*.yaml
-          retention-days: 30
+      # No -r flag: ContainerRuntimeIdentifiers in the project file lists linux-x64 and linux-arm64,
+      # and the SDK turns that into a multi-architecture image index.
+      - name: Publish Container Image
+        shell: pwsh
+        run: |
+          dotnet publish GitLfsCache.Tool/GitLfsCache.Tool.csproj `
+            --configuration Release `
+            -t:PublishContainer `
+            -p:ContainerRegistry=ghcr.io `
+            -p:ContainerImageTags='"${{ needs.build.outputs.version }};latest"'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   security:
     name: Security Scanning

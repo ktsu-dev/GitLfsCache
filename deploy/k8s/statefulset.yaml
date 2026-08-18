@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitlfscache
+  labels:
+    app.kubernetes.io/name: gitlfscache
+spec:
+  # A StatefulSet rather than a Deployment because the cache lives on a read-write-once volume, which
+  # cannot be shared between pods. Transfer tokens are stateless, so any replica can serve any URL,
+  # but each replica holds its own cache and hit rate dilutes as replicas grow. Start at one replica
+  # with a large volume and scale out only when a single pod saturates.
+  replicas: 1
+  serviceName: gitlfscache
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gitlfscache
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gitlfscache
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gitlfscache
+          image: ghcr.io/ktsu-dev/gitlfscache:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: GitLfsCache__Store__Root
+              value: /var/lib/gitlfscache
+            - name: GitLfsCache__TokenKeys__0
+              valueFrom:
+                secretKeyRef:
+                  name: gitlfscache-tokens
+                  key: tokenKey
+          envFrom:
+            - configMapRef:
+                name: gitlfscache-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              # Memory does not scale with object size: nothing is ever buffered whole, so a 20 GB
+              # object and a 20 MB object have the same profile. Transfers are I/O bound.
+              memory: 128Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            # The startup check scans the volume to rebuild its byte counter, which on a large cache
+            # takes a while. A generous startup budget stops the liveness probe killing the pod
+            # mid-scan.
+            periodSeconds: 5
+            failureThreshold: 60
+          volumeMounts:
+            - name: cache
+              mountPath: /var/lib/gitlfscache
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # readOnlyRootFilesystem needs writable scratch space. Staging lives on the cache volume, but
+        # the runtime still wants /tmp.
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: cache
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            # Provision above the configured byte budget. Eviction runs on an interval, so the store
+            # can sit over budget between sweeps, and a full volume is an outage where a cold cache is
+            # only slow.
+            storage: 60Gi
