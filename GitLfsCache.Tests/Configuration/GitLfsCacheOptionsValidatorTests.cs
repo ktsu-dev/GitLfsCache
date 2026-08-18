@@ -9,6 +9,14 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 [TestClass]
 public class GitLfsCacheOptionsValidatorTests
 {
+	/// <summary>
+	/// A root that is fully qualified on whichever platform the suite runs on, since the validator
+	/// now refuses anything the store's AbsoluteDirectoryPath conversion would reject.
+	/// </summary>
+	private static readonly string FullyQualifiedRoot = Path.Combine(
+		Path.GetPathRoot(Path.GetTempPath()) ?? Path.DirectorySeparatorChar.ToString(),
+		"gitlfscache");
+
 	private static GitLfsCacheOptions Valid()
 	{
 		GitLfsCacheOptions options = new()
@@ -16,7 +24,7 @@ public class GitLfsCacheOptionsValidatorTests
 			TokenLifetime = TimeSpan.FromHours(1),
 			Store = new StoreOptions
 			{
-				Root = "/var/lib/gitlfscache",
+				Root = FullyQualifiedRoot,
 				MaxSize = "500GB",
 				LowWaterMark = 0.9,
 				StagingMaxAge = TimeSpan.FromHours(6),
@@ -134,6 +142,18 @@ public class GitLfsCacheOptionsValidatorTests
 
 		Assert.IsNotNull(result.FailureMessage);
 		Assert.Contains("LowWaterMark", result.FailureMessage);
+	}
+
+	[TestMethod]
+	public void Validate_RelativeStoreRoot_FailsNamingRoot()
+	{
+		GitLfsCacheOptions options = Valid();
+		options.Store.Root = "relative/path";
+
+		ValidateOptionsResult result = Validate(options);
+
+		Assert.IsNotNull(result.FailureMessage);
+		Assert.Contains("Root", result.FailureMessage);
 	}
 
 	[TestMethod]

@@ -1,0 +1,85 @@
+// Copyright (c) 2023-2026 ktsu-dev contributors
+
+namespace ktsu.GitLfsCache.Storage;
+
+using System.IO.Abstractions;
+using ktsu.Semantics.Paths;
+
+/// <summary>
+/// A staging file being written before it is verified and published.
+/// </summary>
+/// <remarks>
+/// Disposing without a successful publish deletes the file. That is what keeps a cancelled or failed
+/// transfer from leaving a partial object behind, and it means no caller has to remember to clean up
+/// on every failure path.
+/// <para>
+/// The exposed stream digests as it writes, so publishing can verify the content against the object
+/// id without reading the file back.
+/// </para>
+/// </remarks>
+public sealed class StagingHandle : IAsyncDisposable
+{
+	private readonly IFileSystem _fileSystem;
+	private readonly HashingStream _stream;
+	private bool _published;
+	private bool _disposed;
+
+	internal StagingHandle(IFileSystem fileSystem, AbsoluteFilePath path, Stream sink)
+	{
+		_fileSystem = fileSystem;
+		_stream = new HashingStream(sink);
+		Path = path;
+	}
+
+	/// <summary>Gets the absolute path of the staging file.</summary>
+	public AbsoluteFilePath Path { get; }
+
+	/// <summary>Gets the writable stream for the staging file.</summary>
+	public Stream Stream => _stream;
+
+	/// <summary>
+	/// Gets the digest of everything written so far, as lowercase hex.
+	/// </summary>
+	/// <returns>The digest, in the form a Git LFS object id takes.</returns>
+	public string GetDigestHex() => _stream.GetDigestHex();
+
+	/// <summary>Marks the staging file as published so disposal leaves it alone.</summary>
+	internal void MarkPublished() => _published = true;
+
+	/// <summary>Flushes and closes the underlying file so it can be renamed.</summary>
+	internal async ValueTask CloseAsync(CancellationToken cancellationToken)
+	{
+		await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+		await _stream.DisposeAsync().ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask DisposeAsync()
+	{
+		if (_disposed)
+		{
+			return;
+		}
+
+		_disposed = true;
+		await _stream.DisposeAsync().ConfigureAwait(false);
+
+		if (_published)
+		{
+			return;
+		}
+
+		try
+		{
+			if (_fileSystem.File.Exists(Path))
+			{
+				_fileSystem.File.Delete(Path);
+			}
+		}
+		catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+		{
+			// Age-based staging cleanup will collect it. Throwing from disposal would turn a harmless
+			// leftover file into a failed request.
+		}
+	}
+}

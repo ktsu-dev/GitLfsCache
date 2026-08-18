@@ -75,6 +75,14 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 		{
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Store:Root must be set to an absolute directory path.");
 		}
+		else if (!Path.IsPathFullyQualified(options.Store.Root))
+		{
+			// The store converts this to an AbsoluteDirectoryPath, which refuses a relative or
+			// drive-less path. Catching it here turns a constructor exception into a startup message
+			// that names the setting and shows the value.
+			failures.Add(
+				$"{GitLfsCacheOptions.SectionName}:Store:Root must be a fully qualified absolute path for this platform, but was '{options.Store.Root}'.");
+		}
 
 		if (!SizeParser.TryParse(options.Store.MaxSize, out long maxSizeBytes) || maxSizeBytes <= 0)
 		{

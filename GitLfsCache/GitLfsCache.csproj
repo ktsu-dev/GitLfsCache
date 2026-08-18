@@ -20,8 +20,12 @@
     <PackageReference Include="Polyfill" PrivateAssets="all" />
     <PackageReference Include="ktsu.Essentials" />
     <PackageReference Include="ktsu.Essentials.EncryptionProviders.Aes" />
-    <PackageReference Include="ktsu.Essentials.HashProviders.SHA256" />
     <PackageReference Include="ktsu.Essentials.FileSystemProviders.Native" />
     <PackageReference Include="ktsu.Semantics.Paths" />
+    <!-- Used directly, so referenced explicitly rather than relied on transitively (KTSU0006):
+         Semantics.Strings supplies the .As<T>() conversion, and the filesystem interface package
+         supplies IFileSystem, which the store depends on so a mock filesystem can stand in. -->
+    <PackageReference Include="ktsu.Semantics.Strings" />
+    <PackageReference Include="Testably.Abstractions.FileSystem.Interface" />
   </ItemGroup>
 </Project>
