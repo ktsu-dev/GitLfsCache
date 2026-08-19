@@ -14,6 +14,16 @@ data:
   GitLfsCache__TokenLifetime: "01:00:00"
   GitLfsCache__Fetch__FollowerTimeout: "00:05:00"
 
+  # Lock listings are cached for this long. Short deliberately: it is the only thing bounding how long
+  # a lock taken outside the proxy, through a forge's web interface, stays invisible here. Admission
+  # is how long an upstream authorization is trusted, and must be at least the listing lifetime.
+  GitLfsCache__Locks__ListTtl: "00:00:15"
+  GitLfsCache__Locks__AdmissionTtl: "00:01:00"
+
+  # How many lock calls a batched request may have in flight against one upstream, across every
+  # request in this process. Raise it only while watching the throttled-items counter.
+  GitLfsCache__Locks__MaxFanOutConcurrency: "8"
+
   # The URL clients use. Leave it unset to derive each transfer URL from the incoming request, which
   # requires the ingress to send X-Forwarded-Proto and X-Forwarded-Host. Setting it explicitly is the
   # safer choice, because only the operator knows for certain what clients addressed.

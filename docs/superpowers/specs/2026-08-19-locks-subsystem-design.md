@@ -1,7 +1,7 @@
 # ktsu.GitLfsCache Locks Subsystem Design
 
 Date: 2026-08-19
-Status: proposed.
+Status: implemented, apart from metadata-only mode. See the As built section for where the code departed from this document.
 
 ## Purpose
 
@@ -255,8 +255,22 @@ New counters on the existing `ktsu.GitLfsCache` meter: lock list hits, lock list
 - Metadata-only mode: batch, transfer, and verify all relay, and no store is constructed.
 - Repository allow-listing: a missing or empty list refuses startup, `**` allows everything, a non-matching path is 404 on every route kind including the new ones and produces no upstream call, and a matching path is unaffected.
 
+## As built
+
+Where the implementation departed from this document, recorded here rather than left for a reader to discover by diffing:
+
+- **Metadata-only mode is not built.** Everything else in this document is. `Store:Enabled` does not exist yet, so a forge-adjacent deployment still carries the object plane. The lock cache works regardless of where it is deployed; what is missing is the ability to run it without a volume.
+- **The route parser sees no method**, so listing and creation share the `Locks` kind and the handler tells them apart. Noted inline above; the original table listed five method-keyed kinds, which the parser cannot express.
+- **`FetchCoalescer` was split rather than generalised in place.** The machinery moved to `SingleFlight`, keyed by an opaque string, and `FetchCoalescer` became a four-line adapter over a private instance. `IFetchTicket` kept its name despite now being generic, because it has twenty-five call sites in tests that are the evidence the behaviour survived the move. Two subsystems cannot collide on a key, because each holds its own `SingleFlight` rather than sharing one.
+- **Admission is proven by a separate `ProbeAsync`**, a single-page listing request, rather than by a full walk. A caller arriving at a fresh snapshot pays one page instead of every page, which is the difference between negligible and significant on a repository with thousands of locks.
+- **A cursor is not encrypted or authenticated.** It carries a snapshot identity and an offset, base64url encoded for opacity only. Unlike a transfer token it grants nothing: the worst a forged cursor achieves is a page of a listing the caller was already admitted to read, starting somewhere they chose. A negative offset is refused rather than clamped, so a cursor always means exactly one position.
+- **`LocksBatch` is refused with 404 when the subsystem is disabled**, rather than relayed. Upstream has no such endpoint, so relaying would turn a switched-off feature into a confusing 404 from the forge instead of a clear one from here. Every other lock route relays when disabled.
+- **All untrusted JSON is read through a `JsonValues` helper.** `JsonNode.GetValue<T>` throws on a node of another kind, so reading a client's or an upstream's body directly turns a malformed request into an unhandled exception and a 500. This was found by a test feeding a number where a path belonged, and the same latent fault was already present in the listing parser.
+- **The refresher carries two endless-walk guards** that this document did not call for: a page ceiling, and detection of an upstream repeating its cursor. `MaxSnapshotLocks` alone does not stop a small repository being walked forever.
+
 ## Deferred
 
+- **Metadata-only mode**, as described above and specified in full in this document.
 - Sharing snapshots between replicas, which would need a shared cache and would reintroduce the state the object plane deliberately avoids.
 - Caching `verify` per identity, if push-time verification ever becomes hot.
 - Serving followers from the leader's partially assembled snapshot rather than making them wait for publication, which mirrors the deferred tailing improvement on the object plane.
