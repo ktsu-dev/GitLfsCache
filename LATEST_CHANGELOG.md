@@ -1,6 +1,4 @@
-## v1.8.2 (patch)
+## v1.8.2
 
-Changes since v1.8.1:
-
-- [patch] Reduce complexity in the tool entry point and the fan-out parser ([@matt-edmondson](https://github.com/matt-edmondson))
+No significant changes detected since v1.8.2.
 
