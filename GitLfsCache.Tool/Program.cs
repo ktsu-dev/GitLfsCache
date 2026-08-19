@@ -22,6 +22,12 @@ using Microsoft.Extensions.Hosting;
 /// </remarks>
 internal static class Program
 {
+	/// <summary>The configuration key the <c>--store</c> flag overrides.</summary>
+	private const string StoreRootKey = "GitLfsCache:Store:Root";
+
+	/// <summary>The configuration key the <c>--token-key</c> flag overrides.</summary>
+	private const string TokenKeyKey = "GitLfsCache:TokenKeys:0";
+
 	private static async Task<int> Main(string[] args)
 	{
 		Option<int?> port = new("--port", "-p")
@@ -97,16 +103,13 @@ internal static class Program
 				// line naming the path they gave.
 				if (!File.Exists(configPath))
 				{
-					await Console.Error
-						.WriteLineAsync($"No configuration file at '{configPath}'.")
-						.ConfigureAwait(false);
-					return 1;
+					return await FailAsync($"No configuration file at '{configPath}'.").ConfigureAwait(false);
 				}
 			}
 
 			if (parseResult.GetValue(store) is string storeRoot)
 			{
-				overrides["GitLfsCache:Store:Root"] = storeRoot;
+				overrides[StoreRootKey] = storeRoot;
 			}
 
 			if (parseResult.GetValue(maxSize) is string budget)
@@ -121,49 +124,21 @@ internal static class Program
 
 			if (parseResult.GetValue(tokenKey) is string key)
 			{
-				overrides["GitLfsCache:TokenKeys:0"] = key;
+				overrides[TokenKeyKey] = key;
 			}
 
-			string[] configuredUpstreams = parseResult.GetValue(upstreams) ?? [];
-
-			foreach (string entry in configuredUpstreams)
+			if (!TryApplyUpstreams(parseResult.GetValue(upstreams), overrides, out string? invalidUpstream))
 			{
-				int separator = entry.IndexOf('=', StringComparison.Ordinal);
-
-				if (separator <= 0 || separator == entry.Length - 1)
-				{
-					await Console.Error
-						.WriteLineAsync(
-							$"'{entry}' is not a valid upstream. Use name=url, for example github=https://github.com.")
-						.ConfigureAwait(false);
-					return 1;
-				}
-
-				overrides[$"GitLfsCache:Upstreams:{entry[..separator]}:BaseUrl"] = entry[(separator + 1)..];
+				return await FailAsync(
+					$"'{invalidUpstream}' is not a valid upstream. Use name=url, for example github=https://github.com.")
+					.ConfigureAwait(false);
 			}
 
-			// Counted per upstream so repeating the flag appends rather than overwrites, which is
-			// what a repeatable option has to do to be useful.
-			Dictionary<string, int> allowCounts = new(StringComparer.OrdinalIgnoreCase);
-
-			foreach (string entry in parseResult.GetValue(allow) ?? [])
+			if (!TryApplyAllows(parseResult.GetValue(allow), overrides, out string? invalidAllow))
 			{
-				int separator = entry.IndexOf('=', StringComparison.Ordinal);
-
-				if (separator <= 0 || separator == entry.Length - 1)
-				{
-					await Console.Error
-						.WriteLineAsync(
-							$"'{entry}' is not a valid allow entry. Use name=pattern, for example github=studio/**.")
-						.ConfigureAwait(false);
-					return 1;
-				}
-
-				string name = entry[..separator];
-				int index = allowCounts.TryGetValue(name, out int used) ? used : 0;
-				allowCounts[name] = index + 1;
-
-				overrides[$"GitLfsCache:Upstreams:{name}:Repositories:{index}"] = entry[(separator + 1)..];
+				return await FailAsync(
+					$"'{invalidAllow}' is not a valid allow entry. Use name=pattern, for example github=studio/**.")
+					.ConfigureAwait(false);
 			}
 
 			return await RunAsync(overrides, listenPort, configPath, cancellationToken).ConfigureAwait(false);
@@ -232,23 +207,130 @@ internal static class Program
 	/// process and wrong for anything else, so it warns: outstanding transfer URLs stop working when the
 	/// process restarts, and a second replica cannot serve URLs the first one issued.
 	/// </remarks>
+	/// <summary>
+	/// Writes one line to standard error and reports the exit code to return.
+	/// </summary>
+	/// <remarks>
+	/// A helper only so the argument checks above read as a list of conditions rather than as five
+	/// copies of the same three lines.
+	/// </remarks>
+	/// <param name="message">What was wrong with the arguments.</param>
+	/// <returns>The failing exit code.</returns>
+	private static async Task<int> FailAsync(string message)
+	{
+		await Console.Error.WriteLineAsync(message).ConfigureAwait(false);
+		return 1;
+	}
+
+	/// <summary>
+	/// Splits a repeatable <c>name=value</c> flag.
+	/// </summary>
+	/// <remarks>
+	/// A separator at either end is refused rather than producing an empty name or an empty value,
+	/// both of which would bind configuration that cannot work and fail later with a worse message.
+	/// </remarks>
+	/// <param name="entry">The flag value as typed.</param>
+	/// <param name="name">The part before the separator.</param>
+	/// <param name="value">The part after it.</param>
+	/// <returns><see langword="true"/> when the entry had both halves.</returns>
+	private static bool TrySplitPair(string entry, out string name, out string value)
+	{
+		name = string.Empty;
+		value = string.Empty;
+
+		int separator = entry.IndexOf('=', StringComparison.Ordinal);
+
+		if (separator <= 0 || separator == entry.Length - 1)
+		{
+			return false;
+		}
+
+		name = entry[..separator];
+		value = entry[(separator + 1)..];
+		return true;
+	}
+
+	/// <summary>
+	/// Binds every <c>--upstream</c> flag to configuration.
+	/// </summary>
+	/// <param name="entries">The flag values, or null when the flag was not given.</param>
+	/// <param name="overrides">Configuration to add to.</param>
+	/// <param name="invalid">The first entry that could not be read, when one could not.</param>
+	/// <returns><see langword="true"/> when every entry was well formed.</returns>
+	private static bool TryApplyUpstreams(
+		string[]? entries,
+		Dictionary<string, string?> overrides,
+		out string? invalid)
+	{
+		invalid = null;
+
+		foreach (string entry in entries ?? [])
+		{
+			if (!TrySplitPair(entry, out string name, out string url))
+			{
+				invalid = entry;
+				return false;
+			}
+
+			overrides[$"GitLfsCache:Upstreams:{name}:BaseUrl"] = url;
+		}
+
+		return true;
+	}
+
+	/// <summary>
+	/// Binds every <c>--allow</c> flag to configuration.
+	/// </summary>
+	/// <remarks>
+	/// Indexed per upstream so repeating the flag appends rather than overwrites, which is what a
+	/// repeatable option has to do to be useful.
+	/// </remarks>
+	/// <param name="entries">The flag values, or null when the flag was not given.</param>
+	/// <param name="overrides">Configuration to add to.</param>
+	/// <param name="invalid">The first entry that could not be read, when one could not.</param>
+	/// <returns><see langword="true"/> when every entry was well formed.</returns>
+	private static bool TryApplyAllows(
+		string[]? entries,
+		Dictionary<string, string?> overrides,
+		out string? invalid)
+	{
+		invalid = null;
+		Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
+
+		foreach (string entry in entries ?? [])
+		{
+			if (!TrySplitPair(entry, out string name, out string pattern))
+			{
+				invalid = entry;
+				return false;
+			}
+
+			int index = counts.TryGetValue(name, out int used) ? used : 0;
+			counts[name] = index + 1;
+
+			overrides[$"GitLfsCache:Upstreams:{name}:Repositories:{index}"] = pattern;
+		}
+
+		return true;
+	}
+
 	private static void ApplyDefaults(ConfigurationManager configuration, Dictionary<string, string?> overrides)
 	{
 		bool hasStore = overrides.ContainsKey("GitLfsCache:Store:Root")
-			|| !string.IsNullOrWhiteSpace(configuration["GitLfsCache:Store:Root"]);
+			|| !string.IsNullOrWhiteSpace(configuration[StoreRootKey]);
 
 		if (!hasStore)
 		{
-			overrides["GitLfsCache:Store:Root"] =
+			overrides[StoreRootKey] =
 				UserDirectories.GetApplicationDataDirectory("ktsu", "GitLfsCache");
 		}
 
 		bool hasKey = overrides.ContainsKey("GitLfsCache:TokenKeys:0")
-			|| !string.IsNullOrWhiteSpace(configuration["GitLfsCache:TokenKeys:0"]);
+			|| !string.IsNullOrWhiteSpace(configuration[TokenKeyKey]);
 
 		if (!hasKey)
 		{
-			overrides["GitLfsCache:TokenKeys:0"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+			overrides[TokenKeyKey] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
 			Console.Error.WriteLine(
 				"warning: no --token-key given, so a key was generated for this run. Transfer URLs already "
