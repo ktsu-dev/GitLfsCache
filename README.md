@@ -8,7 +8,7 @@
 [![NuGet Downloads](https://img.shields.io/nuget/dt/ktsu.GitLfsCache?label=Downloads&logo=nuget)](https://nuget.org/packages/ktsu.GitLfsCache)
 [![GitHub commit activity](https://img.shields.io/github/commit-activity/m/ktsu-dev/GitLfsCache?label=Commits&logo=github)](https://github.com/ktsu-dev/GitLfsCache/commits/main)
 [![GitHub contributors](https://img.shields.io/github/contributors/ktsu-dev/GitLfsCache?label=Contributors&logo=github)](https://github.com/ktsu-dev/GitLfsCache/graphs/contributors)
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/ktsu-dev/GitLfsCache/dotnet.yml?label=Build&logo=github)](https://github.com/ktsu-dev/GitLfsCache/actions)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/ktsu-dev/GitLfsCache/dotnet.yml?branch=main&label=Build&logo=github)](https://github.com/ktsu-dev/GitLfsCache/actions)
 
 ## Introduction
 
