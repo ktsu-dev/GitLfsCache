@@ -3,7 +3,11 @@
 > A caching reverse proxy for the Git LFS HTTP API. Point `lfs.url` at it and object transfers come from a local store instead of crossing the internet twice.
 
 [![License](https://img.shields.io/github/license/ktsu-dev/GitLfsCache.svg?label=License&logo=nuget)](LICENSE.md)
-[![NuGet Version](https://img.shields.io/nuget/v/ktsu.GitLfsCache.Tool?label=Stable&logo=nuget)](https://nuget.org/packages/ktsu.GitLfsCache.Tool)
+[![NuGet Version](https://img.shields.io/nuget/v/ktsu.GitLfsCache?label=Stable&logo=nuget)](https://nuget.org/packages/ktsu.GitLfsCache)
+[![NuGet Version](https://img.shields.io/nuget/vpre/ktsu.GitLfsCache?label=Latest&logo=nuget)](https://nuget.org/packages/ktsu.GitLfsCache)
+[![NuGet Downloads](https://img.shields.io/nuget/dt/ktsu.GitLfsCache?label=Downloads&logo=nuget)](https://nuget.org/packages/ktsu.GitLfsCache)
+[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/ktsu-dev/GitLfsCache?label=Commits&logo=github)](https://github.com/ktsu-dev/GitLfsCache/commits/main)
+[![GitHub contributors](https://img.shields.io/github/contributors/ktsu-dev/GitLfsCache?label=Contributors&logo=github)](https://github.com/ktsu-dev/GitLfsCache/graphs/contributors)
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/ktsu-dev/GitLfsCache/dotnet.yml?label=Build&logo=github)](https://github.com/ktsu-dev/GitLfsCache/actions)
 
 ## Introduction
