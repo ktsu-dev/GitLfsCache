@@ -44,59 +44,113 @@ public sealed record LockFanOutRequest(
 			return false;
 		}
 
-		string? operation = JsonValues.String(root["operation"]);
+		LockFanOutOperation operation = ReadOperation(root);
 
-		LockFanOutOperation parsed = operation switch
+		if (operation == LockFanOutOperation.Unknown)
+		{
+			return false;
+		}
+
+		if (!TryReadTargets(root, operation, out List<LockFanOutTarget>? targets))
+		{
+			return false;
+		}
+
+		request = new LockFanOutRequest(
+			operation,
+			targets,
+			JsonValues.String(root["ref"]?["name"]),
+			JsonValues.Bool(root["force"]) ?? false);
+
+		return true;
+	}
+
+	private static LockFanOutOperation ReadOperation(JsonObject root) =>
+		JsonValues.String(root["operation"]) switch
 		{
 			"lock" => LockFanOutOperation.Lock,
 			"unlock" => LockFanOutOperation.Unlock,
 			_ => LockFanOutOperation.Unknown,
 		};
 
-		if (parsed == LockFanOutOperation.Unknown)
+	/// <summary>
+	/// Reads the paths, and for a release the ids as well.
+	/// </summary>
+	/// <remarks>
+	/// A request naming nothing is refused rather than treated as an empty fan-out, because a client
+	/// that meant to send paths and sent none should hear about it rather than get a cheerful empty
+	/// result array.
+	/// </remarks>
+	private static bool TryReadTargets(
+		JsonObject root,
+		LockFanOutOperation operation,
+		[NotNullWhen(true)] out List<LockFanOutTarget>? targets)
+	{
+		targets = null;
+		List<LockFanOutTarget> read = [];
+
+		if (!TryReadStrings(root["paths"], out List<string>? paths))
 		{
 			return false;
 		}
 
-		List<LockFanOutTarget> targets = [];
+		read.AddRange(paths.Select(path => new LockFanOutTarget(path, null)));
 
-		if (root["paths"] is JsonArray paths)
+		if (operation == LockFanOutOperation.Unlock)
 		{
-			foreach (JsonNode? element in paths)
+			if (!TryReadStrings(root["ids"], out List<string>? ids))
 			{
-				if (JsonValues.String(element) is not string path || path.Length == 0)
-				{
-					return false;
-				}
-
-				targets.Add(new LockFanOutTarget(path, null));
+				return false;
 			}
+
+			read.AddRange(ids.Select(id => new LockFanOutTarget(null, id)));
 		}
 
-		if (parsed == LockFanOutOperation.Unlock && root["ids"] is JsonArray ids)
-		{
-			foreach (JsonNode? element in ids)
-			{
-				if (JsonValues.String(element) is not string id || id.Length == 0)
-				{
-					return false;
-				}
-
-				targets.Add(new LockFanOutTarget(null, id));
-			}
-		}
-
-		if (targets.Count == 0)
+		if (read.Count == 0)
 		{
 			return false;
 		}
 
-		request = new LockFanOutRequest(
-			parsed,
-			targets,
-			JsonValues.String(root["ref"]?["name"]),
-			JsonValues.Bool(root["force"]) ?? false);
+		targets = read;
+		return true;
+	}
 
+	/// <summary>
+	/// Reads an array of non-empty strings, treating an absent array as an empty one.
+	/// </summary>
+	/// <remarks>
+	/// A node that is present but not an array, or an element that is not a non-empty string, refuses
+	/// the whole body. A body that half parses would fan out over whichever half was understood, and
+	/// the client could not tell that from a fan-out whose other half simply failed.
+	/// </remarks>
+	private static bool TryReadStrings(JsonNode? node, [NotNullWhen(true)] out List<string>? values)
+	{
+		values = null;
+
+		if (node is null)
+		{
+			values = [];
+			return true;
+		}
+
+		if (node is not JsonArray array)
+		{
+			return false;
+		}
+
+		List<string> read = [];
+
+		foreach (JsonNode? element in array)
+		{
+			if (JsonValues.String(element) is not string value || value.Length == 0)
+			{
+				return false;
+			}
+
+			read.Add(value);
+		}
+
+		values = read;
 		return true;
 	}
 }

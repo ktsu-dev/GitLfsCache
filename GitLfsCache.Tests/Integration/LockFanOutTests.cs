@@ -162,8 +162,12 @@ public class LockFanOutTests
 	[DataRow("""{"operation":"lock","paths":[]}""")]
 	[DataRow("""{"operation":"lock","paths":[42]}""")]
 	[DataRow("not json at all")]
+	[DataRow("""{"operation":"unlock","paths":"not an array","ids":["1"]}""")]
 	public async Task MalformedRequest_IsRefusedRatherThanPartlyHonoured(string body)
 	{
+		// The last case is the one worth spelling out: a "paths" that is present but not an array must
+		// refuse the whole body rather than be skipped in favour of the "ids" beside it, or the client
+		// gets a fan-out over half of what it asked for and no way to tell.
 		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
 
 		using HttpResponseMessage response = await PostBatchAsync(fixture, body);
