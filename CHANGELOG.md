@@ -1,3 +1,9 @@
+## v1.8.1 (patch)
+
+Changes since v1.8.0:
+
+- [patch] Clear the Sonar findings from the locks work ([@matt-edmondson](https://github.com/matt-edmondson))
+
 ## v1.8.0 (minor)
 
 Changes since v1.7.0:
