@@ -199,6 +199,35 @@ public class GitLfsCacheOptionsValidatorTests
 	}
 
 	[TestMethod]
+	public void Validate_StoreDisabled_DoesNotRequireStoreSettings()
+	{
+		// A metadata-only deployment has no root, no budget and no sweep, so none of those are checked.
+		GitLfsCacheOptions options = Valid();
+		options.Store.Enabled = false;
+		options.Store.Root = string.Empty;
+		options.Store.MaxSize = "nonsense";
+		options.Store.LowWaterMark = 99;
+
+		Assert.IsTrue(Validate(options).Succeeded, Validate(options).FailureMessage);
+	}
+
+	[TestMethod]
+	public void Validate_StoreAndLocksBothDisabled_Fails()
+	{
+		// Relaying every route with nothing terminated is a proxy that only adds a network hop.
+		GitLfsCacheOptions options = Valid();
+		options.Store.Enabled = false;
+		options.Locks.Enabled = false;
+
+		ValidateOptionsResult result = Validate(options);
+
+		Assert.IsFalse(result.Succeeded);
+		Assert.IsNotNull(result.FailureMessage);
+		Assert.Contains("Store:Enabled", result.FailureMessage);
+		Assert.Contains("Locks:Enabled", result.FailureMessage);
+	}
+
+	[TestMethod]
 	public void Validate_ListTtlLongerThanAdmissionTtl_Fails()
 	{
 		// A listing served for longer than the authorization proving it may be read would outlive the

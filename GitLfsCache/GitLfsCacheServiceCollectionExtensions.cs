@@ -56,8 +56,24 @@ public static class GitLfsCacheServiceCollectionExtensions
 		services.AddSingleton<IRepositoryAllowList, RepositoryAllowList>();
 		services.AddSingleton<IHrefTokenCodec, HrefTokenCodec>();
 		services.AddSingleton<BatchRewriter>();
-		services.AddSingleton<IObjectStore, ObjectStore>();
-		services.AddSingleton<IEvictionPolicy, LeastRecentlyUsedEvictionPolicy>();
+		// Read straight from configuration rather than from bound options, because this decides which
+		// services exist and registration happens before options are available.
+		bool storeEnabled = configuration
+			.GetSection(GitLfsCacheOptions.SectionName)
+			.GetValue("Store:Enabled", defaultValue: true);
+
+		if (storeEnabled)
+		{
+			services.AddSingleton<IObjectStore, ObjectStore>();
+			services.AddSingleton<IEvictionPolicy, LeastRecentlyUsedEvictionPolicy>();
+		}
+		else
+		{
+			// No store, so no eviction, no staging sweep, and no startup check to write a probe file to
+			// a volume that is not mounted. Readiness is satisfied outright rather than left to a check
+			// that will never run.
+			services.AddSingleton<IObjectStore, NullObjectStore>();
+		}
 		services.AddSingleton<IFetchCoalescer, FetchCoalescer>();
 
 		// Its own instance, not the one inside FetchCoalescer, so an object key and a lock key cannot
@@ -70,14 +86,27 @@ public static class GitLfsCacheServiceCollectionExtensions
 		services.AddSingleton<IUpstreamLimiter, UpstreamLimiter>();
 		services.AddSingleton<LockFanOut>();
 		services.AddSingleton<PublicUrlResolver>();
-		services.AddSingleton<StoreReadiness>();
+		services.AddSingleton(_ =>
+		{
+			StoreReadiness readiness = new();
+
+			if (!storeEnabled)
+			{
+				readiness.MarkReady();
+			}
+
+			return readiness;
+		});
 		services.AddSingleton<CacheMetrics>();
 		services.AddSingleton<GitLfsCacheHandler>();
 
 		services.AddMetrics();
 
-		services.AddHostedService<StoreStartupCheck>();
-		services.AddHostedService<StoreMaintenanceService>();
+		if (storeEnabled)
+		{
+			services.AddHostedService<StoreStartupCheck>();
+			services.AddHostedService<StoreMaintenanceService>();
+		}
 
 		// No timeout on the client: an object transfer legitimately takes as long as the object is
 		// large, and the request's own cancellation already covers a client that gives up.

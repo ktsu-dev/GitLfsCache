@@ -97,21 +97,26 @@ public sealed class GitLfsCacheHandler(
 
 		CancellationToken cancellationToken = context.RequestAborted;
 
+		// With no store there is nothing to rewrite hrefs towards, so batch, transfer and verify all
+		// fall through to the relay below. A metadata-only deployment therefore never sees an object
+		// byte: clients receive upstream's own hrefs and go straight there.
+		bool caching = options.Value.Store.Enabled;
+
 		switch (route.Kind)
 		{
-			case LfsRouteKind.Batch when HttpMethods.IsPost(context.Request.Method):
+			case LfsRouteKind.Batch when caching && HttpMethods.IsPost(context.Request.Method):
 				await BatchAsync(context, route, upstreamBase, cancellationToken).ConfigureAwait(false);
 				return;
 
-			case LfsRouteKind.Transfer when HttpMethods.IsGet(context.Request.Method):
+			case LfsRouteKind.Transfer when caching && HttpMethods.IsGet(context.Request.Method):
 				await DownloadAsync(context, route, cancellationToken).ConfigureAwait(false);
 				return;
 
-			case LfsRouteKind.Transfer when HttpMethods.IsPut(context.Request.Method):
+			case LfsRouteKind.Transfer when caching && HttpMethods.IsPut(context.Request.Method):
 				await UploadAsync(context, route, cancellationToken).ConfigureAwait(false);
 				return;
 
-			case LfsRouteKind.Verify when HttpMethods.IsPost(context.Request.Method):
+			case LfsRouteKind.Verify when caching && HttpMethods.IsPost(context.Request.Method):
 				await VerifyAsync(context, route, cancellationToken).ConfigureAwait(false);
 				return;
 

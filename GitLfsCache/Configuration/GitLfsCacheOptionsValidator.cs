@@ -29,7 +29,7 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 
 		ValidateUpstreams(options, failures);
 		ValidateTokens(options, failures);
-		ValidateStore(options.Store, failures);
+		ValidateStore(options, failures);
 		ValidateFetch(options.Fetch, failures);
 		ValidateLocks(options.Locks, failures);
 
@@ -117,8 +117,29 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 		}
 	}
 
-	private static void ValidateStore(StoreOptions store, List<string> failures)
+	/// <summary>
+	/// Validates the object store, or the absence of one.
+	/// </summary>
+	/// <remarks>
+	/// A metadata-only deployment has no root, no budget and no sweep, so none of those settings are
+	/// required or checked. What is required is that it has something left to do: relaying every route
+	/// with nothing terminated is a proxy that only adds a hop.
+	/// </remarks>
+	private static void ValidateStore(GitLfsCacheOptions options, List<string> failures)
 	{
+		StoreOptions store = options.Store;
+
+		if (!store.Enabled)
+		{
+			if (!options.Locks.Enabled)
+			{
+				failures.Add(
+					$"{GitLfsCacheOptions.SectionName}:Store:Enabled and {GitLfsCacheOptions.SectionName}:Locks:Enabled are both false, which leaves nothing for this proxy to do but add a network hop. Enable one of them.");
+			}
+
+			return;
+		}
+
 		if (string.IsNullOrWhiteSpace(store.Root))
 		{
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Store:Root must be set to an absolute directory path.");
