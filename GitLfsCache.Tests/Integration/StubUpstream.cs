@@ -94,6 +94,21 @@ internal sealed class StubUpstream : HttpMessageHandler
 				request.Headers.Range?.ToString()));
 		}
 
+		if (path.EndsWith("/unlock", StringComparison.Ordinal))
+		{
+			return BuildLockChangeResponse(path);
+		}
+
+		if (path.EndsWith("/locks", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
+		{
+			return BuildLockChangeResponse(path);
+		}
+
+		if (path.EndsWith("/locks", StringComparison.Ordinal) && request.Method == HttpMethod.Get)
+		{
+			return BuildLocksResponse(request.RequestUri!.Query);
+		}
+
 		if (path.EndsWith("/objects/batch", StringComparison.Ordinal))
 		{
 			return BuildBatchResponse(body);
@@ -120,6 +135,145 @@ internal sealed class StubUpstream : HttpMessageHandler
 		return new HttpResponseMessage(HttpStatusCode.OK)
 		{
 			Content = new StringContent($"relayed {path}"),
+		};
+	}
+
+	/// <summary>Gets or sets the status an individual lock change answers with.</summary>
+	public HttpStatusCode LockChangeStatus { get; set; } = HttpStatusCode.Created;
+
+	/// <summary>
+	/// Gets or sets how many lock changes are throttled before one is allowed through, standing in for
+	/// a forge's secondary rate limit.
+	/// </summary>
+	public int ThrottleLockChanges { get; set; }
+
+	/// <summary>Gets or sets the Retry-After a throttled lock change reports, in seconds.</summary>
+	public int ThrottleRetryAfterSeconds { get; set; } = 1;
+
+	/// <summary>Gets how many lock changes were attempted, throttled ones included.</summary>
+	public int LockChangeRequests => Requests.Count(request =>
+		request.Path.EndsWith("/unlock", StringComparison.Ordinal)
+		|| (request.Path.EndsWith("/locks", StringComparison.Ordinal) && request.Method == "POST"));
+
+	/// <summary>
+	/// Answers one lock creation or release, optionally throttling first.
+	/// </summary>
+	private HttpResponseMessage BuildLockChangeResponse(string path)
+	{
+		lock (_gate)
+		{
+			if (ThrottleLockChanges > 0)
+			{
+				ThrottleLockChanges--;
+
+				HttpResponseMessage throttled = new(HttpStatusCode.TooManyRequests)
+				{
+					Content = new StringContent("""{"message":"slow down"}""", Encoding.UTF8, "application/json"),
+				};
+
+				throttled.Headers.TryAddWithoutValidation(
+					"Retry-After",
+					ThrottleRetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+				return throttled;
+			}
+		}
+
+		if (LockChangeStatus is not (HttpStatusCode.OK or HttpStatusCode.Created))
+		{
+			return new HttpResponseMessage(LockChangeStatus)
+			{
+				Content = new StringContent("""{"message":"already locked"}""", Encoding.UTF8, "application/json"),
+			};
+		}
+
+		JsonObject body = new()
+		{
+			["lock"] = new JsonObject
+			{
+				["id"] = "new-lock",
+				["path"] = path,
+				["owner"] = new JsonObject { ["name"] = "someone" },
+			},
+		};
+
+		return new HttpResponseMessage(LockChangeStatus)
+		{
+			Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
+		};
+	}
+
+	/// <summary>Gets or sets the status the lock listing answers with.</summary>
+	public HttpStatusCode LocksStatus { get; set; } = HttpStatusCode.OK;
+
+	/// <summary>Gets the lock paths this upstream reports, in order.</summary>
+	public List<string> Locks { get; } = [];
+
+	/// <summary>Gets or sets how many locks the listing returns per page.</summary>
+	public int LocksPageSize { get; set; } = 100;
+
+	/// <summary>Gets how many lock listing pages were requested.</summary>
+	public int LockPageRequests => Requests.Count(request =>
+		request.Path.EndsWith("/locks", StringComparison.Ordinal));
+
+	/// <summary>
+	/// Answers a lock listing page, paginating exactly as a forge does so a test can prove the proxy
+	/// walks every cursor rather than stopping at the first page.
+	/// </summary>
+	private HttpResponseMessage BuildLocksResponse(string query)
+	{
+		if (LocksStatus != HttpStatusCode.OK)
+		{
+			return new HttpResponseMessage(LocksStatus)
+			{
+				Content = new StringContent("""{"message":"no"}""", Encoding.UTF8, "application/json"),
+			};
+		}
+
+		Dictionary<string, string> parsed = query.TrimStart('?')
+			.Split('&', StringSplitOptions.RemoveEmptyEntries)
+			.Select(pair => pair.Split('=', 2))
+			.Where(pair => pair.Length == 2)
+			.ToDictionary(pair => pair[0], pair => Uri.UnescapeDataString(pair[1]), StringComparer.Ordinal);
+
+		int offset = parsed.TryGetValue("cursor", out string? cursor) && int.TryParse(cursor, out int parsedOffset)
+			? parsedOffset
+			: 0;
+
+		int pageSize = parsed.TryGetValue("limit", out string? requested) && int.TryParse(requested, out int limit)
+			? limit
+			: LocksPageSize;
+
+		string[] page;
+
+		lock (_gate)
+		{
+			page = [.. Locks.Skip(offset).Take(pageSize)];
+		}
+
+		JsonArray locks = [];
+
+		for (int index = 0; index < page.Length; index++)
+		{
+			locks.Add(new JsonObject
+			{
+				["id"] = (offset + index).ToString(System.Globalization.CultureInfo.InvariantCulture),
+				["path"] = page[index],
+				["owner"] = new JsonObject { ["name"] = "someone" },
+			});
+		}
+
+		JsonObject body = new() { ["locks"] = locks };
+		int next = offset + page.Length;
+
+		if (next < Locks.Count)
+		{
+			body["next_cursor"] = next.ToString(System.Globalization.CultureInfo.InvariantCulture);
+		}
+
+		return new HttpResponseMessage(HttpStatusCode.OK)
+		{
+			Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
 		};
 	}
 

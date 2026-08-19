@@ -43,6 +43,16 @@ internal sealed class ProxyFixture : IAsyncDisposable
 	/// <summary>Gets a client addressed at the proxy.</summary>
 	public HttpClient Client => _host.GetTestClient();
 
+	/// <summary>
+	/// Gets the test server, for the few tests that must build the request context themselves.
+	/// </summary>
+	/// <remarks>
+	/// Going through <see cref="Client"/> means going through <see cref="Uri"/>, which canonicalizes
+	/// the path. A test that needs to present a path <see cref="Uri"/> would have rewritten has to
+	/// set it on the context directly.
+	/// </remarks>
+	public TestServer Server => _host.GetTestServer();
+
 	/// <summary>Gets the store the proxy is using.</summary>
 	public IObjectStore Store => _host.Services.GetRequiredService<IObjectStore>();
 
@@ -78,6 +88,7 @@ internal sealed class ProxyFixture : IAsyncDisposable
 			["GitLfsCache:Store:MaintenanceInterval"] = "01:00:00",
 			["GitLfsCache:Fetch:FollowerTimeout"] = "00:00:02",
 			["GitLfsCache:Upstreams:github:BaseUrl"] = "https://upstream.example",
+			["GitLfsCache:Upstreams:github:Repositories:0"] = "**",
 		};
 
 		foreach ((string key, string? value) in settings ?? [])

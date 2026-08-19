@@ -2,6 +2,7 @@
 
 namespace ktsu.GitLfsCache.Upstreams;
 
+using System.Globalization;
 using System.Net.Http.Headers;
 using ktsu.GitLfsCache.Tokens;
 
@@ -64,6 +65,124 @@ public static class UpstreamRequests
 		HttpRequestMessage request = new(HttpMethod.Post, Combine(upstreamBase, $"{repositoryPath}/objects/batch"))
 		{
 			Content = new StreamContent(body),
+		};
+
+		request.Content.Headers.ContentType = new MediaTypeHeaderValue(LfsMediaType);
+		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(LfsMediaType));
+		ApplyAuthorization(request, authorization);
+
+		return request;
+	}
+
+	/// <summary>
+	/// Builds one page request of a lock listing walk.
+	/// </summary>
+	/// <remarks>
+	/// The client's own Authorization header is forwarded, exactly as on a batch call, because the
+	/// walk is performed on behalf of whichever client triggered it and upstream remains the authority
+	/// on whether that client may read these locks.
+	/// </remarks>
+	/// <param name="upstreamBase">The configured upstream base URL.</param>
+	/// <param name="repositoryPath">The path between the upstream key and <c>/locks</c>.</param>
+	/// <param name="cursor">Upstream's cursor for the page to fetch, or null for the first.</param>
+	/// <param name="limit">A page size to request, or null to let upstream choose.</param>
+	/// <param name="authorization">The client's Authorization header, forwarded unchanged.</param>
+	/// <returns>The request to send upstream.</returns>
+	public static HttpRequestMessage BuildLockListRequest(
+		Uri upstreamBase,
+		string repositoryPath,
+		string? cursor,
+		int? limit,
+		string? authorization)
+	{
+		Ensure.NotNull(upstreamBase);
+		Ensure.NotNull(repositoryPath);
+
+		List<string> query = [];
+
+		if (!string.IsNullOrEmpty(cursor))
+		{
+			query.Add($"cursor={Uri.EscapeDataString(cursor)}");
+		}
+
+		if (limit is int size)
+		{
+			query.Add($"limit={size.ToString(CultureInfo.InvariantCulture)}");
+		}
+
+		string path = string.IsNullOrEmpty(repositoryPath) ? "locks" : $"{repositoryPath}/locks";
+		string suffix = query.Count == 0 ? string.Empty : $"?{string.Join('&', query)}";
+
+		HttpRequestMessage request = new(HttpMethod.Get, Combine(upstreamBase, path) + suffix);
+
+		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(LfsMediaType));
+		ApplyAuthorization(request, authorization);
+
+		return request;
+	}
+
+	/// <summary>
+	/// Builds one lock creation, as issued during a batched lock request.
+	/// </summary>
+	/// <remarks>
+	/// The caller's own Authorization header travels on every one of these. That is what keeps fanning
+	/// out a parallelizer rather than a lock authority: upstream still decides each creation
+	/// individually, under the identity of whoever asked for it.
+	/// </remarks>
+	/// <param name="upstreamBase">The configured upstream base URL.</param>
+	/// <param name="repositoryPath">The path between the upstream key and <c>/locks</c>.</param>
+	/// <param name="body">The creation body, already assembled.</param>
+	/// <param name="authorization">The client's Authorization header, forwarded unchanged.</param>
+	/// <returns>The request to send upstream.</returns>
+	public static HttpRequestMessage BuildLockCreateRequest(
+		Uri upstreamBase,
+		string repositoryPath,
+		string body,
+		string? authorization)
+	{
+		Ensure.NotNull(upstreamBase);
+		Ensure.NotNull(repositoryPath);
+
+		string path = string.IsNullOrEmpty(repositoryPath) ? "locks" : $"{repositoryPath}/locks";
+
+		HttpRequestMessage request = new(HttpMethod.Post, Combine(upstreamBase, path))
+		{
+			Content = new StringContent(body, System.Text.Encoding.UTF8),
+		};
+
+		request.Content.Headers.ContentType = new MediaTypeHeaderValue(LfsMediaType);
+		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(LfsMediaType));
+		ApplyAuthorization(request, authorization);
+
+		return request;
+	}
+
+	/// <summary>
+	/// Builds one lock release, as issued during a batched unlock request.
+	/// </summary>
+	/// <param name="upstreamBase">The configured upstream base URL.</param>
+	/// <param name="repositoryPath">The path between the upstream key and <c>/locks</c>.</param>
+	/// <param name="lockId">The forge-assigned lock id.</param>
+	/// <param name="body">The release body, already assembled.</param>
+	/// <param name="authorization">The client's Authorization header, forwarded unchanged.</param>
+	/// <returns>The request to send upstream.</returns>
+	public static HttpRequestMessage BuildUnlockRequest(
+		Uri upstreamBase,
+		string repositoryPath,
+		string lockId,
+		string body,
+		string? authorization)
+	{
+		Ensure.NotNull(upstreamBase);
+		Ensure.NotNull(repositoryPath);
+		Ensure.NotNull(lockId);
+
+		string prefix = string.IsNullOrEmpty(repositoryPath) ? "locks" : $"{repositoryPath}/locks";
+		string path = $"{prefix}/{Uri.EscapeDataString(lockId)}/unlock";
+
+		HttpRequestMessage request = new(HttpMethod.Post, Combine(upstreamBase, path))
+		{
+			Content = new StringContent(body, System.Text.Encoding.UTF8),
 		};
 
 		request.Content.Headers.ContentType = new MediaTypeHeaderValue(LfsMediaType);

@@ -15,9 +15,18 @@ namespace ktsu.GitLfsCache.Endpoints;
 /// <param name="RelayPath">
 /// The whole path after the upstream key, used verbatim when relaying.
 /// </param>
+/// <param name="LockId">
+/// The lock id, for a <see cref="LfsRouteKind.LocksUnlock"/> route. Null otherwise.
+/// </param>
+/// <remarks>
+/// <paramref name="LockId"/> is separate from <paramref name="Oid"/> rather than reusing it, because
+/// an object id is a SHA256 digest the proxy validates and addresses storage by, while a lock id is
+/// an opaque string the forge assigns and the proxy only ever passes back.
+/// </remarks>
 public sealed record LfsRoute(
 	LfsRouteKind Kind,
 	string Upstream,
 	string RepositoryPath,
 	string? Oid,
-	string RelayPath);
+	string RelayPath,
+	string? LockId = null);

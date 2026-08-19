@@ -8,6 +8,22 @@ namespace ktsu.GitLfsCache.Configuration;
 public sealed class StoreOptions
 {
 	/// <summary>
+	/// Gets or sets a value indicating whether the proxy caches object bytes at all.
+	/// </summary>
+	/// <remarks>
+	/// False runs the same binary as a metadata-only deployment: no store, no volume, no eviction, and
+	/// batch responses relayed unrewritten so object transfers go straight to upstream and never cross
+	/// this process. It exists for a deployment placed next to the forge to serve the lock plane, where
+	/// the object plane belongs somewhere closer to the client.
+	/// <para>
+	/// Nothing else about the proxy changes, so a metadata-only instance and a full one sharing
+	/// <see cref="GitLfsCacheOptions.TokenKeys"/> and <see cref="GitLfsCacheOptions.PublicBaseUrl"/>
+	/// remain interchangeable from a client's point of view.
+	/// </para>
+	/// </remarks>
+	public bool Enabled { get; set; } = true;
+
+	/// <summary>
 	/// Gets or sets the absolute directory holding the object trees and staging areas.
 	/// </summary>
 	public string Root { get; set; } = string.Empty;

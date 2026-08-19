@@ -399,6 +399,28 @@ public class ProxyFlowTests
 	}
 
 	[TestMethod]
+	[DataRow("POST", "/locks")]
+	[DataRow("POST", "/locks/871/unlock")]
+	public async Task LockChangeRoutes_AreStillRelayedUnchanged(string method, string suffix)
+	{
+		// Creation and release are never terminated, because upstream is the only thing that may grant
+		// or release a lock. Listing and the batch extension are terminated and have their own tests.
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		using HttpClient client = fixture.Client;
+
+		using HttpRequestMessage request = new(new HttpMethod(method), $"{LfsPath}{suffix}")
+		{
+			Content = new StringContent("{}", Encoding.UTF8, "application/vnd.git-lfs+json"),
+		};
+
+		using HttpResponseMessage response = await client.SendAsync(request);
+
+		// Upstream's own status, whatever it is: creation answers 201 rather than 200.
+		Assert.IsTrue(response.IsSuccessStatusCode, $"{(int)response.StatusCode}");
+		Assert.EndsWith(suffix, fixture.Upstream.Requests.Last().Path);
+	}
+
+	[TestMethod]
 	public async Task HealthProbes_ReportLiveAndReady()
 	{
 		await using ProxyFixture fixture = await ProxyFixture.StartAsync();

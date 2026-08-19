@@ -18,4 +18,19 @@ public enum LfsRouteKind
 
 	/// <summary>An upload verification, at <c>.../objects/{oid}/verify</c>.</summary>
 	Verify,
+
+	/// <summary>
+	/// The lock collection, at <c>.../locks</c>. Listing and creation share a path and are told
+	/// apart by method, which the parser does not see.
+	/// </summary>
+	Locks,
+
+	/// <summary>Push-time lock verification, at <c>.../locks/verify</c>.</summary>
+	LocksVerify,
+
+	/// <summary>Batched locking, at <c>.../locks/batch</c>. A proxy extension, not a specification endpoint.</summary>
+	LocksBatch,
+
+	/// <summary>Releasing one lock, at <c>.../locks/{id}/unlock</c>.</summary>
+	LocksUnlock,
 }

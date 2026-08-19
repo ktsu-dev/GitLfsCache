@@ -22,6 +22,8 @@ public static class LfsRouteParser
 	private const string ObjectsSegment = "objects";
 	private const string BatchSegment = "batch";
 	private const string VerifySegment = "verify";
+	private const string LocksSegment = "locks";
+	private const string UnlockSegment = "unlock";
 	private const int OidLength = 64;
 
 	/// <summary>
@@ -44,6 +46,20 @@ public static class LfsRouteParser
 		if (segments.Length == 0)
 		{
 			return false;
+		}
+
+		// A dot segment is refused rather than relayed. The upstream URL is built by joining this
+		// path to the configured base URL and handing the result to Uri, which removes dot segments,
+		// so a path containing them can climb above a base URL that carries a path prefix. That
+		// prefix is a tenancy boundary for the documented Azure DevOps shape
+		// (https://dev.azure.com/myorg), and no legitimate repository path contains a segment that
+		// is "." or "..", because git cannot name one.
+		foreach (string segment in segments)
+		{
+			if (segment is "." or "..")
+			{
+				return false;
+			}
 		}
 
 		string upstream = segments[0];
@@ -93,6 +109,59 @@ public static class LfsRouteParser
 				upstream,
 				string.Join('/', rest[..^2]),
 				rest[^1],
+				relayPath);
+		}
+
+		// .../locks/verify
+		if (rest.Length >= 2
+			&& rest[^1] == VerifySegment
+			&& rest[^2] == LocksSegment)
+		{
+			return new LfsRoute(
+				LfsRouteKind.LocksVerify,
+				upstream,
+				string.Join('/', rest[..^2]),
+				Oid: null,
+				relayPath);
+		}
+
+		// .../locks/batch
+		if (rest.Length >= 2
+			&& rest[^1] == BatchSegment
+			&& rest[^2] == LocksSegment)
+		{
+			return new LfsRoute(
+				LfsRouteKind.LocksBatch,
+				upstream,
+				string.Join('/', rest[..^2]),
+				Oid: null,
+				relayPath);
+		}
+
+		// .../locks/{id}/unlock. The id is opaque and forge-assigned, so unlike an object id there is
+		// nothing to validate it against: any single segment in that position is one.
+		if (rest.Length >= 3
+			&& rest[^1] == UnlockSegment
+			&& rest[^3] == LocksSegment)
+		{
+			return new LfsRoute(
+				LfsRouteKind.LocksUnlock,
+				upstream,
+				string.Join('/', rest[..^3]),
+				Oid: null,
+				relayPath,
+				rest[^2]);
+		}
+
+		// .../locks, which is the listing on GET and creation on POST. The parser sees no method, so
+		// the two share a kind and the handler tells them apart.
+		if (rest.Length >= 1 && rest[^1] == LocksSegment)
+		{
+			return new LfsRoute(
+				LfsRouteKind.Locks,
+				upstream,
+				string.Join('/', rest[..^1]),
+				Oid: null,
 				relayPath);
 		}
 

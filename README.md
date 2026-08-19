@@ -27,7 +27,9 @@ It is not an LFS server. It never becomes the authority for an object it did not
 - **Stateless replicas.** Rewritten URLs carry their own encrypted, authenticated context, so any replica can serve any URL with no shared cache and no sticky sessions.
 - **Bounded disk use.** A byte budget with least-recently-used eviction, sweeping to a low-water mark so it does not thrash at the boundary.
 - **Many upstreams from one deployment.** Each is addressed by the first path segment.
-- **Transparent to what it does not model.** Any other Git LFS endpoint, including the locks API, is relayed verbatim.
+- **One lock listing for everyone.** `GET .../locks` is answered from a snapshot, so clients polling for lock state stop multiplying that traffic upstream. Upstream still authorizes every reader.
+- **Batched locking.** A proxy extension takes many paths at once and fans them out in parallel under a rate limiter, instead of one sequential request per path.
+- **Transparent to what it does not model.** Any other Git LFS endpoint is relayed verbatim.
 - **One binary, two shapes.** The same build is the `gitlfscache` dotnet tool and the container image, so they cannot drift.
 
 ## Installation
@@ -52,16 +54,28 @@ docker pull ghcr.io/ktsu-dev/gitlfscache:latest
 gitlfscache --port 8080 \
   --store /var/cache/gitlfscache \
   --max-size 100GB \
-  --upstream github=https://github.com
+  --upstream github=https://github.com \
+  --allow github='**'
 ```
 
-Every flag is optional. Omit `--store` and it uses a per-user application data directory. Omit `--token-key` and one is generated for the run, with a warning: transfer URLs already handed out stop working when the process restarts, and a second instance cannot serve them.
+Or point it at a configuration file and pass nothing else:
+
+```bash
+gitlfscache --config /etc/gitlfscache.json
+```
+
+Every flag except `--allow` is optional, and `--allow` is only required when the upstream it belongs to was declared on the command line rather than in configuration. Omit `--store` and it uses a per-user application data directory. Omit `--token-key` and one is generated for the run, with a warning: transfer URLs already handed out stop working when the process restarts, and a second instance cannot serve them.
 
 `--upstream` is repeatable, and the name becomes the first path segment clients address:
 
 ```bash
-gitlfscache --upstream github=https://github.com --upstream ado=https://dev.azure.com/myorg
+gitlfscache --upstream github=https://github.com --allow github='studio/**' \
+            --upstream ado=https://dev.azure.com/myorg --allow ado='myproject/**'
 ```
+
+`--allow` is required at least once per upstream, and is also repeatable. It names the repository paths that upstream may be used for, and the proxy refuses to start without it. Pass `'**'` to allow every repository.
+
+Requiring it is deliberate. Without a list, anyone who can reach the proxy can make it cache objects from any repository they can read, spending the byte budget and evicting the working set that the cache was deployed for. It is not an access control and never grants anything: upstream still authorizes every call with the client's own credential.
 
 ### Pointing a client at it
 
@@ -75,7 +89,13 @@ One setting is enough. The proxy is a complete replacement for the upstream LFS 
 
 ### Configuration
 
-Every value binds from configuration, so anything below is settable by environment variable using `__` as the section separator (`GitLfsCache__Store__MaxSize`).
+Nothing has to be passed as a flag. Configuration comes from three places, each overriding the one before it:
+
+1. **`appsettings.json` in the directory you run from.** Note that this is the working directory, not where the tool is installed, so the file ships with the container but a tool user provides their own.
+2. **A file named with `--config`**, which can live anywhere: `gitlfscache --config /etc/gitlfscache.json`. It is layered over the working-directory file rather than replacing it, so an explicit file only has to carry what differs. A path that does not exist is reported by name and the process exits rather than starting on defaults.
+3. **Environment variables**, using `__` as the section separator (`GitLfsCache__Store__MaxSize`, `GitLfsCache__Upstreams__github__BaseUrl`). This is how the Kubernetes base configures everything.
+
+The flags are a convenience over the same settings and win over all three, so `--max-size 3GB` beats a `--config` file asking for 9GB.
 
 ```json
 {
@@ -91,9 +111,15 @@ Every value binds from configuration, so anything below is settable by environme
       "MaintenanceInterval": "00:05:00"
     },
     "Fetch": { "FollowerTimeout": "00:05:00" },
+    "Locks": {
+      "Enabled": true,
+      "ListTtl": "00:00:15",
+      "AdmissionTtl": "00:01:00",
+      "MaxFanOutConcurrency": 8
+    },
     "Upstreams": {
-      "github": { "BaseUrl": "https://github.com" },
-      "ado": { "BaseUrl": "https://dev.azure.com/myorg" }
+      "github": { "BaseUrl": "https://github.com", "Repositories": ["studio/**"] },
+      "ado": { "BaseUrl": "https://dev.azure.com/myorg", "Repositories": ["myproject/**"] }
     }
   }
 }
@@ -108,6 +134,15 @@ Every value binds from configuration, so anything below is settable by environme
 | `Store:LowWaterMark` | The fraction of the budget a sweep reduces the store to. |
 | `Store:StagingMaxAge` | How long an orphaned staging file from a crashed write survives. |
 | `Fetch:FollowerTimeout` | How long a request waits for another request's fetch before fetching upstream itself. |
+| `Locks:Enabled` | Whether the proxy terminates any part of the locking API. Set false to relay every lock route, which is what it did before this existed and the fallback if the cache is ever suspected of being wrong. |
+| `Locks:ListTtl` | How long a lock listing is served before it is refreshed. Short deliberately: see below. |
+| `Locks:AdmissionTtl` | How long an upstream authorization is trusted before it is proven again. Must be at least `ListTtl`, and startup refuses otherwise. |
+| `Locks:RefreshTimeout` | How long a request waits for another request's listing walk before walking itself. |
+| `Locks:MaxSnapshotLocks` | Above this many locks a repository is relayed rather than cached, so one enormous repository cannot consume memory without bound. |
+| `Locks:MaxFanOutConcurrency` | How many lock calls may be in flight against one upstream at a time, across every request in the process. The right value per forge has to be found by measurement. |
+| `Locks:MaxFanOutPaths` | The most paths one batched request may carry. Beyond this the request is refused rather than accepted and throttled part way through. |
+| `Locks:MaxFanOutRetries` | How many times a throttled lock call is retried before it is reported as failed. |
+| `Upstreams:<name>:Repositories` | Required. Path patterns this upstream may serve, matched against the whole path after the upstream key, with `*` inside one segment and `**` across segments. An entry normally ends in `**`, because the path continues into `info/lfs/...`. Use `**` to allow everything. |
 
 Configuration is validated at startup and the process refuses to run on a bad value, reporting every problem at once and naming the setting each came from. That includes a store root that is not writable: a cache proxy whose volume is missing looks healthy from the outside and then fails every transfer, which is worse than a pod that will not start and says why.
 
@@ -132,11 +167,70 @@ Three things about that base are worth knowing before you change it.
 
 Memory does not scale with object size, because nothing is ever buffered whole. A 20 GB object and a 20 MB object have the same memory profile, which makes the resource limits straightforward.
 
+### File locking
+
+The locking API is part of the Git LFS HTTP API, addressed as a suffix of whatever `lfs.url` points at, so a client already sends its lock traffic here. The proxy terminates two parts of it.
+
+**The listing is cached.** `GET .../locks` is answered from an in-memory snapshot per repository. The first client to ask after the snapshot goes stale walks every upstream cursor page and publishes the result; everyone else reads it. A client polling on a timer therefore costs upstream one walk per `ListTtl` however many clients are running. The proxy also assembles the pages itself, so a client gets the whole listing in one round trip instead of walking cursors over a wide-area link.
+
+Nothing is served to a caller upstream has not recently accepted. A caller with no current admission is checked with a single-page request under its own credential before it sees anything, and an admission only ever exists because a real upstream call succeeded. **The cache never decides who may read locks**; it only remembers, briefly, what upstream already decided. The consequence to be aware of is that a credential revoked upstream can still read listings for up to `AdmissionTtl`.
+
+Creation and release are never terminated, only relayed, because upstream is the only thing that may grant or release a lock. A successful one drops the snapshot immediately, so a client that just took a lock sees it.
+
+**Staleness costs a retry, not a conflict.** Two clients can both see a file unlocked within `ListTtl` and both try to lock it; upstream grants one and refuses the other exactly as it would have without the cache. What the proxy cannot see is a lock taken outside it, through a forge's web interface or a client not configured through the proxy, and `ListTtl` is the only thing bounding how long that stays invisible. That is why it is short and not a knob to turn up casually.
+
+#### Batched locking
+
+git-lfs issues one request per path, one after another, so locking several hundred assets over a wide-area link is several hundred sequential round trips. `POST .../locks/batch` is a proxy extension that takes them at once:
+
+```json
+{ "operation": "lock", "paths": ["Content/A.uasset", "Content/B.uasset"] }
+```
+
+`operation` is `lock` or `unlock`; `unlock` also accepts `ids`, and `force`. Both accept a `ref`. The response is always 200 when the request was well formed, with one result per item in the order they were sent, because partial success is the normal outcome and failing the whole request would discard the half that worked:
+
+```json
+{ "results": [
+    { "path": "Content/A.uasset", "ok": true,  "lock": { "id": "871", "owner": { "name": "someone" } } },
+    { "path": "Content/B.uasset", "ok": false, "status": 409, "message": "already locked" }
+  ] }
+```
+
+Each item is still one upstream call carrying the caller's own credential, so upstream decides every lock individually under the caller's identity. The proxy chooses only the order and the concurrency. **This is not atomic and cannot be** over an API with no transaction: a client that disconnects part way through leaves the locks already granted still granted, so treat the result array as authoritative and reconcile.
+
+Because it is an extension, a stock git-lfs will not use it — a client has to be taught to. Note that `Locks:Enabled: false` makes this route 404 rather than relaying it, since no upstream has such an endpoint.
+
+Forge rate limits are the expected failure here, not an edge case. A refusal carrying `Retry-After` pauses every call to that upstream for the stated duration, and the item is retried up to `MaxFanOutRetries`. Watch the throttled-items counter and lower `MaxFanOutConcurrency` if it is ever non-zero.
+
+### Metadata-only mode
+
+`Store:Enabled: false` runs the same binary with the object plane switched off: no store, no volume, no eviction, no staging sweep, and batch responses relayed unrewritten so clients receive upstream's own hrefs and transfer straight from the forge. Object bytes never cross the process. It refuses to start with locks also disabled, because that leaves nothing terminated and only adds a hop.
+
+It exists because the two planes want opposite placement. Object bytes are bandwidth-bound and want to be near the *client*; lock listings and batched locking are round-trip-bound and want to be near the *forge*. With repositories in the cloud and clients spread across an office and home connections, one deployment cannot be right for both.
+
+The two are interchangeable from a client's point of view when they share `TokenKeys` and `PublicBaseUrl`, because a rewritten transfer URL carries everything needed to serve it. That is what allows one hostname to resolve to a different instance for different clients, without a client needing two credential entries. A client that batches against one and transfers against the other simply misses and the object is fetched from upstream, which is correct rather than a failure.
+
+A metadata-only deployment needs no `PersistentVolumeClaim` and can be a plain `Deployment` rather than a `StatefulSet`.
+
+```json
+{
+  "GitLfsCache": {
+    "Store": { "Enabled": false },
+    "Locks": { "Enabled": true },
+    "Upstreams": {
+      "github": { "BaseUrl": "https://github.com", "Repositories": ["studio/**"] }
+    }
+  }
+}
+```
+
 ### Health and metrics
 
 `/healthz` reports liveness, `/readyz` reports readiness gated on a writable store and valid configuration.
 
 Counters are published through `System.Diagnostics.Metrics` under the meter `ktsu.GitLfsCache`, with no exporter bundled: hits, misses, bytes served from cache, bytes fetched upstream, bytes relayed on upload, objects stored, verification failures, coalesced waits, and rejected tokens. The hit and miss pair is the one to watch. A low hit ratio means the proxy is costing latency without saving bandwidth, which usually means the volume is too small for the working set.
+
+The locking API has its own counters: lock list hits, refreshes, refresh failures, refresh waits, admission probes, admission rejections, and for batched locking the items attempted, items succeeded, and items throttled. **Lock list hits against refreshes** is the pair to watch, and is directly the multiple by which upstream lock traffic has been reduced. **Anything but zero on throttled items** means `MaxFanOutConcurrency` is above what that forge tolerates, and is the signal to turn it down.
 
 ## How it works
 
