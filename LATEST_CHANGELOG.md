@@ -1,6 +1,6 @@
-## v1.8.1 (patch)
+## v1.8.2 (patch)
 
-Changes since v1.8.0:
+Changes since v1.8.1:
 
-- [patch] Clear the Sonar findings from the locks work ([@matt-edmondson](https://github.com/matt-edmondson))
+- [patch] Reduce complexity in the tool entry point and the fan-out parser ([@matt-edmondson](https://github.com/matt-edmondson))
 
