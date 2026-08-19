@@ -7,6 +7,10 @@ metadata:
 data:
   # Double underscore is the environment-variable form of a configuration section separator, so these
   # map onto the same options the appsettings file binds.
+  # Set to "false" for a metadata-only deployment: no store, no volume, no eviction, and object
+  # transfers relayed straight to upstream. Every setting below under Store is then ignored.
+  GitLfsCache__Store__Enabled: "true"
+
   GitLfsCache__Store__MaxSize: 50GB
   GitLfsCache__Store__LowWaterMark: "0.9"
   GitLfsCache__Store__StagingMaxAge: "06:00:00"

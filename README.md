@@ -198,6 +198,28 @@ Because it is an extension, a stock git-lfs will not use it — a client has to 
 
 Forge rate limits are the expected failure here, not an edge case. A refusal carrying `Retry-After` pauses every call to that upstream for the stated duration, and the item is retried up to `MaxFanOutRetries`. Watch the throttled-items counter and lower `MaxFanOutConcurrency` if it is ever non-zero.
 
+### Metadata-only mode
+
+`Store:Enabled: false` runs the same binary with the object plane switched off: no store, no volume, no eviction, no staging sweep, and batch responses relayed unrewritten so clients receive upstream's own hrefs and transfer straight from the forge. Object bytes never cross the process. It refuses to start with locks also disabled, because that leaves nothing terminated and only adds a hop.
+
+It exists because the two planes want opposite placement. Object bytes are bandwidth-bound and want to be near the *client*; lock listings and batched locking are round-trip-bound and want to be near the *forge*. With repositories in the cloud and clients spread across an office and home connections, one deployment cannot be right for both.
+
+The two are interchangeable from a client's point of view when they share `TokenKeys` and `PublicBaseUrl`, because a rewritten transfer URL carries everything needed to serve it. That is what allows one hostname, resolved by split-horizon DNS, to reach a full cache inside the office and a forge-adjacent metadata-only instance outside it, without a client needing two credential entries. A client that batches against one and transfers against the other simply misses and the object is fetched from upstream, which is correct rather than a failure.
+
+A metadata-only deployment needs no `PersistentVolumeClaim` and can be a plain `Deployment` rather than a `StatefulSet`.
+
+```json
+{
+  "GitLfsCache": {
+    "Store": { "Enabled": false },
+    "Locks": { "Enabled": true },
+    "Upstreams": {
+      "github": { "BaseUrl": "https://github.com", "Repositories": ["studio/**"] }
+    }
+  }
+}
+```
+
 ### Health and metrics
 
 `/healthz` reports liveness, `/readyz` reports readiness gated on a writable store and valid configuration.

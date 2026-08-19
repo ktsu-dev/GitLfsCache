@@ -1,7 +1,7 @@
 # ktsu.GitLfsCache Locks Subsystem Design
 
 Date: 2026-08-19
-Status: implemented, apart from metadata-only mode. See the As built section for where the code departed from this document.
+Status: implemented. See the As built section for where the code departed from this document.
 
 ## Purpose
 
@@ -259,7 +259,9 @@ New counters on the existing `ktsu.GitLfsCache` meter: lock list hits, lock list
 
 Where the implementation departed from this document, recorded here rather than left for a reader to discover by diffing:
 
-- **Metadata-only mode is not built.** Everything else in this document is. `Store:Enabled` does not exist yet, so a forge-adjacent deployment still carries the object plane. The lock cache works regardless of where it is deployed; what is missing is the ability to run it without a volume.
+- **Metadata-only mode relays object routes rather than rewriting nothing.** The document said batch would be handled as a relay, which it is, and additionally that transfer and verify would relay so a token from a sibling replica would still work. Relaying a transfer cannot serve a token, because the path a token is presented on is not a path upstream has; what it does is give upstream's own answer instead of a 403 from a token check against a store that does not exist. A client that batched against one deployment and transferred against another re-batches and continues, which is the same recovery as any expired token.
+- **A `NullObjectStore` was needed.** Leaving the store unregistered is not possible, because the handler depends on `IObjectStore` and `ObjectStore` resolves its root to an absolute path in its constructor, which a deployment with no root cannot satisfy. A store that silently discards writes was rejected for the opposite reason: it would make a deployment with no disk into a bandwidth funnel for object bytes it was never placed to carry. Nothing reaches any member of it, and `OpenStaging` throws to say so.
+- **Startup refuses when the store and locks are both disabled**, which the document did not call for. That configuration leaves nothing terminated and only adds a network hop.
 - **The route parser sees no method**, so listing and creation share the `Locks` kind and the handler tells them apart. Noted inline above; the original table listed five method-keyed kinds, which the parser cannot express.
 - **`FetchCoalescer` was split rather than generalised in place.** The machinery moved to `SingleFlight`, keyed by an opaque string, and `FetchCoalescer` became a four-line adapter over a private instance. `IFetchTicket` kept its name despite now being generic, because it has twenty-five call sites in tests that are the evidence the behaviour survived the move. Two subsystems cannot collide on a key, because each holds its own `SingleFlight` rather than sharing one.
 - **Admission is proven by a separate `ProbeAsync`**, a single-page listing request, rather than by a full walk. A caller arriving at a fresh snapshot pays one page instead of every page, which is the difference between negligible and significant on a repository with thousands of locks.
@@ -270,7 +272,6 @@ Where the implementation departed from this document, recorded here rather than 
 
 ## Deferred
 
-- **Metadata-only mode**, as described above and specified in full in this document.
 - Sharing snapshots between replicas, which would need a shared cache and would reintroduce the state the object plane deliberately avoids.
 - Caching `verify` per identity, if push-time verification ever becomes hot.
 - Serving followers from the leader's partially assembled snapshot rather than making them wait for publication, which mirrors the deferred tailing improvement on the object plane.
