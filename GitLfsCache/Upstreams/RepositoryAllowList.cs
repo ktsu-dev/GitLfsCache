@@ -55,15 +55,7 @@ public sealed class RepositoryAllowList(IOptions<GitLfsCacheOptions> options) : 
 
 		string candidate = path.Trim('/');
 
-		foreach (Regex pattern in patterns)
-		{
-			if (pattern.IsMatch(candidate))
-			{
-				return true;
-			}
-		}
-
-		return false;
+		return patterns.Any(pattern => pattern.IsMatch(candidate));
 	}
 
 	/// <summary>
