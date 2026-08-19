@@ -399,6 +399,30 @@ public class ProxyFlowTests
 	}
 
 	[TestMethod]
+	[DataRow("GET", "/locks")]
+	[DataRow("POST", "/locks")]
+	[DataRow("POST", "/locks/batch")]
+	[DataRow("POST", "/locks/871/unlock")]
+	public async Task LocksRoutes_AreStillRelayedUnchanged(string method, string suffix)
+	{
+		// The locking API now has route kinds of its own, but nothing terminates them yet. Until the
+		// snapshot and fan-out land, every one of these must reach upstream exactly as before, so this
+		// is what keeps classifying them from being a behaviour change.
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		using HttpClient client = fixture.Client;
+
+		using HttpRequestMessage request = new(new HttpMethod(method), $"{LfsPath}{suffix}")
+		{
+			Content = new StringContent("{}", Encoding.UTF8, "application/vnd.git-lfs+json"),
+		};
+
+		using HttpResponseMessage response = await client.SendAsync(request);
+
+		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+		Assert.EndsWith(suffix, fixture.Upstream.Requests.Last().Path);
+	}
+
+	[TestMethod]
 	public async Task HealthProbes_ReportLiveAndReady()
 	{
 		await using ProxyFixture fixture = await ProxyFixture.StartAsync();

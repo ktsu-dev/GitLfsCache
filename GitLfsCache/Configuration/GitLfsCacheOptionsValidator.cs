@@ -31,6 +31,7 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 		ValidateTokens(options, failures);
 		ValidateStore(options.Store, failures);
 		ValidateFetch(options.Fetch, failures);
+		ValidateLocks(options.Locks, failures);
 
 		return failures.Count == 0
 			? ValidateOptionsResult.Success
@@ -51,12 +52,41 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 				failures.Add(
 					$"{GitLfsCacheOptions.SectionName}:Upstreams:{key}:BaseUrl must be an absolute http or https URL, but was '{upstream.BaseUrl}'.");
 			}
+
+			ValidateRepositories(key, upstream, failures);
 		}
 
 		if (options.PublicBaseUrl is not null && !IsAbsoluteHttpUrl(options.PublicBaseUrl))
 		{
 			failures.Add(
 				$"{GitLfsCacheOptions.SectionName}:PublicBaseUrl must be an absolute http or https URL when set, but was '{options.PublicBaseUrl}'.");
+		}
+	}
+
+	/// <summary>
+	/// Requires each upstream to say which repository paths it may be used for.
+	/// </summary>
+	/// <remarks>
+	/// Required rather than defaulting to everything, so that a proxy which caches whatever it is
+	/// pointed at has to be asked for. The message names the wildcard, because an operator who does
+	/// want every repository should be able to say so in one edit rather than go looking.
+	/// </remarks>
+	private static void ValidateRepositories(string key, UpstreamOptions upstream, List<string> failures)
+	{
+		if (upstream.Repositories.Count == 0)
+		{
+			failures.Add(
+				$"{GitLfsCacheOptions.SectionName}:Upstreams:{key}:Repositories must contain at least one path pattern, for example 'studio/**'. Use '**' to allow every repository.");
+			return;
+		}
+
+		for (int index = 0; index < upstream.Repositories.Count; index++)
+		{
+			if (string.IsNullOrWhiteSpace(upstream.Repositories[index]))
+			{
+				failures.Add(
+					$"{GitLfsCacheOptions.SectionName}:Upstreams:{key}:Repositories[{index}] must not be empty.");
+			}
 		}
 	}
 
@@ -130,6 +160,37 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 		if (fetch.FollowerTimeout <= TimeSpan.Zero)
 		{
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Fetch:FollowerTimeout must be greater than zero.");
+		}
+	}
+
+	private static void ValidateLocks(LocksOptions locks, List<string> failures)
+	{
+		if (locks.ListTtl <= TimeSpan.Zero)
+		{
+			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:ListTtl must be greater than zero.");
+		}
+
+		if (locks.AdmissionTtl <= TimeSpan.Zero)
+		{
+			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:AdmissionTtl must be greater than zero.");
+		}
+
+		// A listing older than the authorization proving it may be read would mean serving data that
+		// outlives the only evidence the caller was ever allowed to see it.
+		if (locks.ListTtl > locks.AdmissionTtl)
+		{
+			failures.Add(
+				$"{GitLfsCacheOptions.SectionName}:Locks:ListTtl ({locks.ListTtl}) must not exceed Locks:AdmissionTtl ({locks.AdmissionTtl}), or a listing could outlive the authorization that permits reading it.");
+		}
+
+		if (locks.RefreshTimeout <= TimeSpan.Zero)
+		{
+			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:RefreshTimeout must be greater than zero.");
+		}
+
+		if (locks.MaxSnapshotLocks <= 0)
+		{
+			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:MaxSnapshotLocks must be greater than zero.");
 		}
 	}
 

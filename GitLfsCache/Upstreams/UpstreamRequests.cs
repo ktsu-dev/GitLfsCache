@@ -2,6 +2,7 @@
 
 namespace ktsu.GitLfsCache.Upstreams;
 
+using System.Globalization;
 using System.Net.Http.Headers;
 using ktsu.GitLfsCache.Tokens;
 
@@ -67,6 +68,53 @@ public static class UpstreamRequests
 		};
 
 		request.Content.Headers.ContentType = new MediaTypeHeaderValue(LfsMediaType);
+		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(LfsMediaType));
+		ApplyAuthorization(request, authorization);
+
+		return request;
+	}
+
+	/// <summary>
+	/// Builds one page request of a lock listing walk.
+	/// </summary>
+	/// <remarks>
+	/// The client's own Authorization header is forwarded, exactly as on a batch call, because the
+	/// walk is performed on behalf of whichever client triggered it and upstream remains the authority
+	/// on whether that client may read these locks.
+	/// </remarks>
+	/// <param name="upstreamBase">The configured upstream base URL.</param>
+	/// <param name="repositoryPath">The path between the upstream key and <c>/locks</c>.</param>
+	/// <param name="cursor">Upstream's cursor for the page to fetch, or null for the first.</param>
+	/// <param name="limit">A page size to request, or null to let upstream choose.</param>
+	/// <param name="authorization">The client's Authorization header, forwarded unchanged.</param>
+	/// <returns>The request to send upstream.</returns>
+	public static HttpRequestMessage BuildLockListRequest(
+		Uri upstreamBase,
+		string repositoryPath,
+		string? cursor,
+		int? limit,
+		string? authorization)
+	{
+		Ensure.NotNull(upstreamBase);
+		Ensure.NotNull(repositoryPath);
+
+		List<string> query = [];
+
+		if (!string.IsNullOrEmpty(cursor))
+		{
+			query.Add($"cursor={Uri.EscapeDataString(cursor)}");
+		}
+
+		if (limit is int size)
+		{
+			query.Add($"limit={size.ToString(CultureInfo.InvariantCulture)}");
+		}
+
+		string path = string.IsNullOrEmpty(repositoryPath) ? "locks" : $"{repositoryPath}/locks";
+		string suffix = query.Count == 0 ? string.Empty : $"?{string.Join('&', query)}";
+
+		HttpRequestMessage request = new(HttpMethod.Get, Combine(upstreamBase, path) + suffix);
+
 		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(LfsMediaType));
 		ApplyAuthorization(request, authorization);
 
