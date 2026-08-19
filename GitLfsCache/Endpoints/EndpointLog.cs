@@ -74,4 +74,10 @@ internal static partial class EndpointLog
 		Level = LogLevel.Warning,
 		Message = "A transfer token for action '{TokenAction}' was presented on the {Expected} endpoint.")]
 	public static partial void TokenActionMismatch(ILogger logger, string tokenAction, string expected);
+
+	[LoggerMessage(
+		EventId = 2011,
+		Level = LogLevel.Warning,
+		Message = "Request for '{Path}' refused: no pattern in upstream '{Upstream}' allows it.")]
+	public static partial void RepositoryNotAllowed(ILogger logger, string path, string upstream);
 }

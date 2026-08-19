@@ -30,6 +30,15 @@ public sealed class CacheMetrics : IDisposable
 	private readonly Counter<long> _verificationFailures;
 	private readonly Counter<long> _coalescedWaits;
 	private readonly Counter<long> _rejectedTokens;
+	private readonly Counter<long> _lockListHits;
+	private readonly Counter<long> _lockRefreshes;
+	private readonly Counter<long> _lockRefreshFailures;
+	private readonly Counter<long> _lockRefreshWaits;
+	private readonly Counter<long> _lockAdmissionProbes;
+	private readonly Counter<long> _lockAdmissionRejections;
+	private readonly Counter<long> _lockFanOutItems;
+	private readonly Counter<long> _lockFanOutSucceeded;
+	private readonly Counter<long> _lockFanOutThrottled;
 
 	/// <summary>
 	/// Initializes a new instance of the <see cref="CacheMetrics"/> class.
@@ -49,6 +58,15 @@ public sealed class CacheMetrics : IDisposable
 		_verificationFailures = _meter.CreateCounter<long>("gitlfscache.verification_failures", unit: "{object}", description: "Transfers whose content did not hash to the expected object id.");
 		_coalescedWaits = _meter.CreateCounter<long>("gitlfscache.coalesced_waits", unit: "{request}", description: "Requests that waited for another request's fetch instead of fetching themselves.");
 		_rejectedTokens = _meter.CreateCounter<long>("gitlfscache.rejected_tokens", unit: "{request}", description: "Requests refused because their transfer token was invalid or expired.");
+		_lockListHits = _meter.CreateCounter<long>("gitlfscache.lock_list_hits", unit: "{request}", description: "Lock listings answered from a snapshot without reaching upstream.");
+		_lockRefreshes = _meter.CreateCounter<long>("gitlfscache.lock_refreshes", unit: "{walk}", description: "Lock listing walks performed against upstream.");
+		_lockRefreshFailures = _meter.CreateCounter<long>("gitlfscache.lock_refresh_failures", unit: "{walk}", description: "Lock listing walks that did not produce a snapshot.");
+		_lockRefreshWaits = _meter.CreateCounter<long>("gitlfscache.lock_refresh_waits", unit: "{request}", description: "Requests that waited for another request's lock listing walk.");
+		_lockAdmissionProbes = _meter.CreateCounter<long>("gitlfscache.lock_admission_probes", unit: "{request}", description: "Single-page upstream calls made only to prove a credential may read a repository's locks.");
+		_lockAdmissionRejections = _meter.CreateCounter<long>("gitlfscache.lock_admission_rejections", unit: "{request}", description: "Admission probes upstream refused.");
+		_lockFanOutItems = _meter.CreateCounter<long>("gitlfscache.lock_fanout_items", unit: "{call}", description: "Individual lock calls attempted as part of a batched request, including retries.");
+		_lockFanOutSucceeded = _meter.CreateCounter<long>("gitlfscache.lock_fanout_succeeded", unit: "{call}", description: "Individual lock calls upstream accepted.");
+		_lockFanOutThrottled = _meter.CreateCounter<long>("gitlfscache.lock_fanout_throttled", unit: "{call}", description: "Lock calls upstream throttled, each pausing the whole upstream.");
 	}
 
 	/// <summary>Records an object served from the store.</summary>
@@ -94,6 +112,60 @@ public sealed class CacheMetrics : IDisposable
 
 	/// <summary>Records a refused transfer token.</summary>
 	public void RecordRejectedToken() => _rejectedTokens.Add(1);
+
+	/// <summary>Records a lock listing answered from a snapshot.</summary>
+	/// <remarks>
+	/// The ratio of this to <see cref="RecordLockRefresh"/> is the multiple by which upstream lock
+	/// traffic has been reduced, and is the pair to watch for this subsystem the way hits and misses
+	/// are the pair to watch for the object store.
+	/// </remarks>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockListHit(string upstream) =>
+		_lockListHits.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records a lock listing walk against upstream.</summary>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockRefresh(string upstream) =>
+		_lockRefreshes.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records a lock listing walk that produced no snapshot.</summary>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockRefreshFailure(string upstream) =>
+		_lockRefreshFailures.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records a request that waited for another request's listing walk.</summary>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockRefreshWait(string upstream) =>
+		_lockRefreshWaits.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records a single-page call made only to prove a credential.</summary>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockAdmissionProbe(string upstream) =>
+		_lockAdmissionProbes.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records an admission probe upstream refused.</summary>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockAdmissionRejected(string upstream) =>
+		_lockAdmissionRejections.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records one attempted lock call within a batched request.</summary>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockFanOutItem(string upstream) =>
+		_lockFanOutItems.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records one lock call upstream accepted.</summary>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockFanOutSucceeded(string upstream) =>
+		_lockFanOutSucceeded.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records a lock call upstream throttled.</summary>
+	/// <remarks>
+	/// Anything but zero here means the configured concurrency is above what this forge tolerates. It
+	/// is the signal to turn MaxFanOutConcurrency down.
+	/// </remarks>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockFanOutThrottled(string upstream) =>
+		_lockFanOutThrottled.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
 
 	/// <inheritdoc />
 	public void Dispose() => _meter.Dispose();

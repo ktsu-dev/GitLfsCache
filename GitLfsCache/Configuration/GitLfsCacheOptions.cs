@@ -44,6 +44,11 @@ public sealed class GitLfsCacheOptions
 	public FetchOptions Fetch { get; set; } = new();
 
 	/// <summary>
+	/// Gets or sets the locking API settings.
+	/// </summary>
+	public LocksOptions Locks { get; set; } = new();
+
+	/// <summary>
 	/// Gets the configured upstreams, keyed by the first path segment clients address them by.
 	/// </summary>
 	public IDictionary<string, UpstreamOptions> Upstreams { get; } =
