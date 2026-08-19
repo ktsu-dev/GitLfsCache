@@ -54,12 +54,9 @@ public static class LfsRouteParser
 		// prefix is a tenancy boundary for the documented Azure DevOps shape
 		// (https://dev.azure.com/myorg), and no legitimate repository path contains a segment that
 		// is "." or "..", because git cannot name one.
-		foreach (string segment in segments)
+		if (segments.Any(segment => segment is "." or ".."))
 		{
-			if (segment is "." or "..")
-			{
-				return false;
-			}
+			return false;
 		}
 
 		string upstream = segments[0];
@@ -182,14 +179,6 @@ public static class LfsRouteParser
 			return false;
 		}
 
-		foreach (char character in segment)
-		{
-			if (character is not ((>= '0' and <= '9') or (>= 'a' and <= 'f')))
-			{
-				return false;
-			}
-		}
-
-		return true;
+		return segment.All(character => character is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
 	}
 }
