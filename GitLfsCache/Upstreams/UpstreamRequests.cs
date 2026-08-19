@@ -122,6 +122,77 @@ public static class UpstreamRequests
 	}
 
 	/// <summary>
+	/// Builds one lock creation, as issued during a batched lock request.
+	/// </summary>
+	/// <remarks>
+	/// The caller's own Authorization header travels on every one of these. That is what keeps fanning
+	/// out a parallelizer rather than a lock authority: upstream still decides each creation
+	/// individually, under the identity of whoever asked for it.
+	/// </remarks>
+	/// <param name="upstreamBase">The configured upstream base URL.</param>
+	/// <param name="repositoryPath">The path between the upstream key and <c>/locks</c>.</param>
+	/// <param name="body">The creation body, already assembled.</param>
+	/// <param name="authorization">The client's Authorization header, forwarded unchanged.</param>
+	/// <returns>The request to send upstream.</returns>
+	public static HttpRequestMessage BuildLockCreateRequest(
+		Uri upstreamBase,
+		string repositoryPath,
+		string body,
+		string? authorization)
+	{
+		Ensure.NotNull(upstreamBase);
+		Ensure.NotNull(repositoryPath);
+
+		string path = string.IsNullOrEmpty(repositoryPath) ? "locks" : $"{repositoryPath}/locks";
+
+		HttpRequestMessage request = new(HttpMethod.Post, Combine(upstreamBase, path))
+		{
+			Content = new StringContent(body, System.Text.Encoding.UTF8),
+		};
+
+		request.Content.Headers.ContentType = new MediaTypeHeaderValue(LfsMediaType);
+		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(LfsMediaType));
+		ApplyAuthorization(request, authorization);
+
+		return request;
+	}
+
+	/// <summary>
+	/// Builds one lock release, as issued during a batched unlock request.
+	/// </summary>
+	/// <param name="upstreamBase">The configured upstream base URL.</param>
+	/// <param name="repositoryPath">The path between the upstream key and <c>/locks</c>.</param>
+	/// <param name="lockId">The forge-assigned lock id.</param>
+	/// <param name="body">The release body, already assembled.</param>
+	/// <param name="authorization">The client's Authorization header, forwarded unchanged.</param>
+	/// <returns>The request to send upstream.</returns>
+	public static HttpRequestMessage BuildUnlockRequest(
+		Uri upstreamBase,
+		string repositoryPath,
+		string lockId,
+		string body,
+		string? authorization)
+	{
+		Ensure.NotNull(upstreamBase);
+		Ensure.NotNull(repositoryPath);
+		Ensure.NotNull(lockId);
+
+		string prefix = string.IsNullOrEmpty(repositoryPath) ? "locks" : $"{repositoryPath}/locks";
+		string path = $"{prefix}/{Uri.EscapeDataString(lockId)}/unlock";
+
+		HttpRequestMessage request = new(HttpMethod.Post, Combine(upstreamBase, path))
+		{
+			Content = new StringContent(body, System.Text.Encoding.UTF8),
+		};
+
+		request.Content.Headers.ContentType = new MediaTypeHeaderValue(LfsMediaType);
+		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(LfsMediaType));
+		ApplyAuthorization(request, authorization);
+
+		return request;
+	}
+
+	/// <summary>
 	/// Builds the request that fetches an object from upstream on a cache miss.
 	/// </summary>
 	/// <param name="token">The token carrying the upstream action.</param>

@@ -192,6 +192,21 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 		{
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:MaxSnapshotLocks must be greater than zero.");
 		}
+
+		if (locks.MaxFanOutConcurrency <= 0)
+		{
+			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:MaxFanOutConcurrency must be greater than zero.");
+		}
+
+		if (locks.MaxFanOutPaths <= 0)
+		{
+			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:MaxFanOutPaths must be greater than zero.");
+		}
+
+		if (locks.MaxFanOutRetries < 0)
+		{
+			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:MaxFanOutRetries must not be negative.");
+		}
 	}
 
 	/// <summary>

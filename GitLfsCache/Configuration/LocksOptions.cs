@@ -50,4 +50,32 @@ public sealed class LocksOptions
 	/// lock count exceeds this is served by relaying rather than by caching.
 	/// </remarks>
 	public int MaxSnapshotLocks { get; set; } = 100_000;
+
+	/// <summary>
+	/// Gets or sets how many lock calls may be in flight against one upstream at a time.
+	/// </summary>
+	/// <remarks>
+	/// Per upstream and shared across every in-flight request in the process, not per request. Two
+	/// clients each batching five hundred paths would otherwise collectively exceed whatever the forge
+	/// tolerates while each stayed within its own limit.
+	/// <para>
+	/// The right value for GitHub and for Azure DevOps is not known in advance and has to be found by
+	/// measurement. This default is deliberately cautious.
+	/// </para>
+	/// </remarks>
+	public int MaxFanOutConcurrency { get; set; } = 8;
+
+	/// <summary>
+	/// Gets or sets the most paths one batched lock request may carry.
+	/// </summary>
+	/// <remarks>
+	/// Refusing an oversized request outright is better than accepting work that will certainly be
+	/// throttled part way through and leave the caller reconciling a partial result.
+	/// </remarks>
+	public int MaxFanOutPaths { get; set; } = 1000;
+
+	/// <summary>
+	/// Gets or sets how many times a throttled lock call is retried before it is reported as failed.
+	/// </summary>
+	public int MaxFanOutRetries { get; set; } = 3;
 }

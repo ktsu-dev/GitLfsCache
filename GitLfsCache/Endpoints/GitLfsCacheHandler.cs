@@ -35,6 +35,7 @@ using Microsoft.Extensions.Options;
 /// <param name="coalescer">Keeps concurrent misses to one upstream fetch.</param>
 /// <param name="lockLists">Answers lock listings from a snapshot.</param>
 /// <param name="lockSnapshots">Holds lock snapshots, so a relayed change can invalidate one.</param>
+/// <param name="lockFanOut">Runs the individual calls of a batched lock request.</param>
 /// <param name="publicUrls">Resolves the base URL rewritten hrefs point at.</param>
 /// <param name="metrics">Cache counters.</param>
 /// <param name="options">The configured options.</param>
@@ -49,6 +50,7 @@ public sealed class GitLfsCacheHandler(
 	IFetchCoalescer coalescer,
 	LockListService lockLists,
 	ILockSnapshotStore lockSnapshots,
+	LockFanOut lockFanOut,
 	PublicUrlResolver publicUrls,
 	CacheMetrics metrics,
 	IOptions<GitLfsCacheOptions> options,
@@ -115,6 +117,10 @@ public sealed class GitLfsCacheHandler(
 
 			case LfsRouteKind.Locks when HttpMethods.IsGet(context.Request.Method):
 				await LockListAsync(context, route, upstreamBase, cancellationToken).ConfigureAwait(false);
+				return;
+
+			case LfsRouteKind.LocksBatch when HttpMethods.IsPost(context.Request.Method):
+				await LockFanOutAsync(context, route, upstreamBase, cancellationToken).ConfigureAwait(false);
 				return;
 
 			// Creation and release are relayed, never terminated, because upstream is the only thing
@@ -480,6 +486,74 @@ public sealed class GitLfsCacheHandler(
 
 		await context.Response
 			.WriteAsync(body.ToJsonString(), cancellationToken)
+			.ConfigureAwait(false);
+	}
+
+	/// <summary>
+	/// Runs a batched lock or unlock, issuing the individual calls in parallel.
+	/// </summary>
+	/// <remarks>
+	/// A proxy extension, so it is refused rather than relayed when the subsystem is switched off: an
+	/// upstream has no such endpoint, and relaying would turn a disabled feature into a confusing 404
+	/// from the forge instead of a clear one from here.
+	/// </remarks>
+	private async Task LockFanOutAsync(
+		HttpContext context,
+		LfsRoute route,
+		Uri upstreamBase,
+		CancellationToken cancellationToken)
+	{
+		if (!options.Value.Locks.Enabled)
+		{
+			context.Response.StatusCode = StatusCodes.Status404NotFound;
+			return;
+		}
+
+		JsonNode? body;
+
+		try
+		{
+			body = await JsonNode.ParseAsync(context.Request.Body, cancellationToken: cancellationToken)
+				.ConfigureAwait(false);
+		}
+		catch (System.Text.Json.JsonException)
+		{
+			context.Response.StatusCode = StatusCodes.Status400BadRequest;
+			return;
+		}
+
+		if (!LockFanOutRequest.TryParse(body, out LockFanOutRequest? request))
+		{
+			context.Response.StatusCode = StatusCodes.Status400BadRequest;
+			return;
+		}
+
+		// Refused outright rather than accepted and throttled part way through, which would leave the
+		// caller reconciling a partial result they never asked for.
+		if (request.Targets.Count > options.Value.Locks.MaxFanOutPaths)
+		{
+			context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+			return;
+		}
+
+		LockSnapshotKey key = new(route.Upstream, route.RepositoryPath, request.Ref);
+
+		JsonObject results = await lockFanOut
+			.ExecuteAsync(
+				request,
+				key,
+				upstreamBase,
+				context.Request.Headers.Authorization.ToString(),
+				cancellationToken)
+			.ConfigureAwait(false);
+
+		// Always 200 when the request itself was well formed. Partial success is the normal outcome,
+		// and a transport-level failure would discard the half that worked.
+		context.Response.StatusCode = StatusCodes.Status200OK;
+		context.Response.ContentType = UpstreamRequests.LfsMediaType;
+
+		await context.Response
+			.WriteAsync(results.ToJsonString(), cancellationToken)
 			.ConfigureAwait(false);
 	}
 

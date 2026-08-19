@@ -399,15 +399,12 @@ public class ProxyFlowTests
 	}
 
 	[TestMethod]
-	[DataRow("GET", "/locks")]
 	[DataRow("POST", "/locks")]
-	[DataRow("POST", "/locks/batch")]
 	[DataRow("POST", "/locks/871/unlock")]
-	public async Task LocksRoutes_AreStillRelayedUnchanged(string method, string suffix)
+	public async Task LockChangeRoutes_AreStillRelayedUnchanged(string method, string suffix)
 	{
-		// The locking API now has route kinds of its own, but nothing terminates them yet. Until the
-		// snapshot and fan-out land, every one of these must reach upstream exactly as before, so this
-		// is what keeps classifying them from being a behaviour change.
+		// Creation and release are never terminated, because upstream is the only thing that may grant
+		// or release a lock. Listing and the batch extension are terminated and have their own tests.
 		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
 		using HttpClient client = fixture.Client;
 
@@ -418,7 +415,8 @@ public class ProxyFlowTests
 
 		using HttpResponseMessage response = await client.SendAsync(request);
 
-		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+		// Upstream's own status, whatever it is: creation answers 201 rather than 200.
+		Assert.IsTrue(response.IsSuccessStatusCode, $"{(int)response.StatusCode}");
 		Assert.EndsWith(suffix, fixture.Upstream.Requests.Last().Path);
 	}
 
