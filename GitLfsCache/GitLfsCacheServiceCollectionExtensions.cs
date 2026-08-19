@@ -67,6 +67,8 @@ public static class GitLfsCacheServiceCollectionExtensions
 		services.AddSingleton<ILockSnapshotStore, LockSnapshotStore>();
 		services.AddSingleton<ILockListRefresher, LockListRefresher>();
 		services.AddSingleton<LockListService>();
+		services.AddSingleton<IUpstreamLimiter, UpstreamLimiter>();
+		services.AddSingleton<LockFanOut>();
 		services.AddSingleton<PublicUrlResolver>();
 		services.AddSingleton<StoreReadiness>();
 		services.AddSingleton<CacheMetrics>();

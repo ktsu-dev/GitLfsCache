@@ -63,8 +63,8 @@ public static class LockListParser
 				return false;
 			}
 
-			string? id = entry[IdProperty]?.GetValue<string>();
-			string? path = entry[PathProperty]?.GetValue<string>();
+			string? id = JsonValues.String(entry[IdProperty]);
+			string? path = JsonValues.String(entry[PathProperty]);
 
 			if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(path))
 			{
@@ -78,7 +78,7 @@ public static class LockListParser
 		}
 
 		entries = parsed;
-		nextCursor = page[NextCursorProperty]?.GetValue<string>() is string cursor && cursor.Length > 0
+		nextCursor = JsonValues.String(page[NextCursorProperty]) is string cursor && cursor.Length > 0
 			? cursor
 			: null;
 

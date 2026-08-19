@@ -75,6 +75,8 @@ public class LockListParserTests
 	[DataRow("""{"locks":[{"id":"871"}]}""")]
 	[DataRow("""{"locks":[{"id":"","path":"a.uasset"}]}""")]
 	[DataRow("""{"locks":["not an object"]}""")]
+	[DataRow("""{"locks":[{"id":42,"path":"a.uasset"}]}""")]
+	[DataRow("""{"locks":[{"id":"1","path":["a"]}]}""")]
 	[DataRow("[]")]
 	public void TryParsePage_Malformed_IsRefusedRatherThanPartiallyRead(string json)
 	{
@@ -82,6 +84,19 @@ public class LockListParserTests
 		// one wrong answer this cache must never produce.
 		Assert.IsFalse(LockListParser.TryParsePage(Parse(json), out IReadOnlyList<LockEntry>? entries, out _));
 		Assert.IsNull(entries);
+	}
+
+	[TestMethod]
+	public void TryParsePage_NonStringCursor_IsIgnoredRatherThanThrowing()
+	{
+		// GetValue<string> throws on a node of another kind, so an upstream sending a number here would
+		// otherwise become an unhandled exception rather than a page with no continuation.
+		Assert.IsTrue(LockListParser.TryParsePage(
+			Parse("""{"locks":[],"next_cursor":42}"""),
+			out _,
+			out string? cursor));
+
+		Assert.IsNull(cursor);
 	}
 
 	[TestMethod]

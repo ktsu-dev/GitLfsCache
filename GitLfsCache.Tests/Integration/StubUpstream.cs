@@ -94,6 +94,16 @@ internal sealed class StubUpstream : HttpMessageHandler
 				request.Headers.Range?.ToString()));
 		}
 
+		if (path.EndsWith("/unlock", StringComparison.Ordinal))
+		{
+			return BuildLockChangeResponse(path);
+		}
+
+		if (path.EndsWith("/locks", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
+		{
+			return BuildLockChangeResponse(path);
+		}
+
 		if (path.EndsWith("/locks", StringComparison.Ordinal) && request.Method == HttpMethod.Get)
 		{
 			return BuildLocksResponse(request.RequestUri!.Query);
@@ -125,6 +135,71 @@ internal sealed class StubUpstream : HttpMessageHandler
 		return new HttpResponseMessage(HttpStatusCode.OK)
 		{
 			Content = new StringContent($"relayed {path}"),
+		};
+	}
+
+	/// <summary>Gets or sets the status an individual lock change answers with.</summary>
+	public HttpStatusCode LockChangeStatus { get; set; } = HttpStatusCode.Created;
+
+	/// <summary>
+	/// Gets or sets how many lock changes are throttled before one is allowed through, standing in for
+	/// a forge's secondary rate limit.
+	/// </summary>
+	public int ThrottleLockChanges { get; set; }
+
+	/// <summary>Gets or sets the Retry-After a throttled lock change reports, in seconds.</summary>
+	public int ThrottleRetryAfterSeconds { get; set; } = 1;
+
+	/// <summary>Gets how many lock changes were attempted, throttled ones included.</summary>
+	public int LockChangeRequests => Requests.Count(request =>
+		request.Path.EndsWith("/unlock", StringComparison.Ordinal)
+		|| (request.Path.EndsWith("/locks", StringComparison.Ordinal) && request.Method == "POST"));
+
+	/// <summary>
+	/// Answers one lock creation or release, optionally throttling first.
+	/// </summary>
+	private HttpResponseMessage BuildLockChangeResponse(string path)
+	{
+		lock (_gate)
+		{
+			if (ThrottleLockChanges > 0)
+			{
+				ThrottleLockChanges--;
+
+				HttpResponseMessage throttled = new(HttpStatusCode.TooManyRequests)
+				{
+					Content = new StringContent("""{"message":"slow down"}""", Encoding.UTF8, "application/json"),
+				};
+
+				throttled.Headers.TryAddWithoutValidation(
+					"Retry-After",
+					ThrottleRetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+				return throttled;
+			}
+		}
+
+		if (LockChangeStatus is not (HttpStatusCode.OK or HttpStatusCode.Created))
+		{
+			return new HttpResponseMessage(LockChangeStatus)
+			{
+				Content = new StringContent("""{"message":"already locked"}""", Encoding.UTF8, "application/json"),
+			};
+		}
+
+		JsonObject body = new()
+		{
+			["lock"] = new JsonObject
+			{
+				["id"] = "new-lock",
+				["path"] = path,
+				["owner"] = new JsonObject { ["name"] = "someone" },
+			},
+		};
+
+		return new HttpResponseMessage(LockChangeStatus)
+		{
+			Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
 		};
 	}
 

@@ -209,7 +209,7 @@ public class LockListCachingTests
 
 			create.Headers.TryAddWithoutValidation("Authorization", Credential);
 			using HttpResponseMessage created = await client.SendAsync(create);
-			Assert.AreEqual(HttpStatusCode.OK, created.StatusCode);
+			Assert.IsTrue(created.IsSuccessStatusCode, $"{(int)created.StatusCode}");
 		}
 
 		Assert.HasCount(2, (await ListLocksAsync(fixture))["locks"]!.AsArray());

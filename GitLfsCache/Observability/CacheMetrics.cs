@@ -36,6 +36,9 @@ public sealed class CacheMetrics : IDisposable
 	private readonly Counter<long> _lockRefreshWaits;
 	private readonly Counter<long> _lockAdmissionProbes;
 	private readonly Counter<long> _lockAdmissionRejections;
+	private readonly Counter<long> _lockFanOutItems;
+	private readonly Counter<long> _lockFanOutSucceeded;
+	private readonly Counter<long> _lockFanOutThrottled;
 
 	/// <summary>
 	/// Initializes a new instance of the <see cref="CacheMetrics"/> class.
@@ -61,6 +64,9 @@ public sealed class CacheMetrics : IDisposable
 		_lockRefreshWaits = _meter.CreateCounter<long>("gitlfscache.lock_refresh_waits", unit: "{request}", description: "Requests that waited for another request's lock listing walk.");
 		_lockAdmissionProbes = _meter.CreateCounter<long>("gitlfscache.lock_admission_probes", unit: "{request}", description: "Single-page upstream calls made only to prove a credential may read a repository's locks.");
 		_lockAdmissionRejections = _meter.CreateCounter<long>("gitlfscache.lock_admission_rejections", unit: "{request}", description: "Admission probes upstream refused.");
+		_lockFanOutItems = _meter.CreateCounter<long>("gitlfscache.lock_fanout_items", unit: "{call}", description: "Individual lock calls attempted as part of a batched request, including retries.");
+		_lockFanOutSucceeded = _meter.CreateCounter<long>("gitlfscache.lock_fanout_succeeded", unit: "{call}", description: "Individual lock calls upstream accepted.");
+		_lockFanOutThrottled = _meter.CreateCounter<long>("gitlfscache.lock_fanout_throttled", unit: "{call}", description: "Lock calls upstream throttled, each pausing the whole upstream.");
 	}
 
 	/// <summary>Records an object served from the store.</summary>
@@ -141,6 +147,25 @@ public sealed class CacheMetrics : IDisposable
 	/// <param name="upstream">The upstream key, recorded as a tag.</param>
 	public void RecordLockAdmissionRejected(string upstream) =>
 		_lockAdmissionRejections.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records one attempted lock call within a batched request.</summary>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockFanOutItem(string upstream) =>
+		_lockFanOutItems.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records one lock call upstream accepted.</summary>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockFanOutSucceeded(string upstream) =>
+		_lockFanOutSucceeded.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records a lock call upstream throttled.</summary>
+	/// <remarks>
+	/// Anything but zero here means the configured concurrency is above what this forge tolerates. It
+	/// is the signal to turn MaxFanOutConcurrency down.
+	/// </remarks>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockFanOutThrottled(string upstream) =>
+		_lockFanOutThrottled.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
 
 	/// <inheritdoc />
 	public void Dispose() => _meter.Dispose();
