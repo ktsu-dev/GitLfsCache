@@ -10,6 +10,7 @@ using ktsu.GitLfsCache.Batch;
 using ktsu.GitLfsCache.Configuration;
 using ktsu.GitLfsCache.Endpoints;
 using ktsu.GitLfsCache.Fetching;
+using ktsu.GitLfsCache.Locks;
 using ktsu.GitLfsCache.Observability;
 using ktsu.GitLfsCache.Storage;
 using ktsu.GitLfsCache.Tokens;
@@ -52,11 +53,20 @@ public static class GitLfsCacheServiceCollectionExtensions
 		services.AddSingleton<IEncryptionProvider, AesEncryptionProvider>();
 
 		services.AddSingleton<IUpstreamRegistry, UpstreamRegistry>();
+		services.AddSingleton<IRepositoryAllowList, RepositoryAllowList>();
 		services.AddSingleton<IHrefTokenCodec, HrefTokenCodec>();
 		services.AddSingleton<BatchRewriter>();
 		services.AddSingleton<IObjectStore, ObjectStore>();
 		services.AddSingleton<IEvictionPolicy, LeastRecentlyUsedEvictionPolicy>();
 		services.AddSingleton<IFetchCoalescer, FetchCoalescer>();
+
+		// Its own instance, not the one inside FetchCoalescer, so an object key and a lock key cannot
+		// collide however either is spelled.
+		services.AddSingleton<ISingleFlight, SingleFlight>();
+		services.AddSingleton<ICredentialAdmission, CredentialAdmission>();
+		services.AddSingleton<ILockSnapshotStore, LockSnapshotStore>();
+		services.AddSingleton<ILockListRefresher, LockListRefresher>();
+		services.AddSingleton<LockListService>();
 		services.AddSingleton<PublicUrlResolver>();
 		services.AddSingleton<StoreReadiness>();
 		services.AddSingleton<CacheMetrics>();

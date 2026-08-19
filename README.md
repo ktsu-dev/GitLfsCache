@@ -48,16 +48,28 @@ docker pull ghcr.io/ktsu-dev/gitlfscache:latest
 gitlfscache --port 8080 \
   --store /var/cache/gitlfscache \
   --max-size 100GB \
-  --upstream github=https://github.com
+  --upstream github=https://github.com \
+  --allow github='**'
 ```
 
-Every flag is optional. Omit `--store` and it uses a per-user application data directory. Omit `--token-key` and one is generated for the run, with a warning: transfer URLs already handed out stop working when the process restarts, and a second instance cannot serve them.
+Or point it at a configuration file and pass nothing else:
+
+```bash
+gitlfscache --config /etc/gitlfscache.json
+```
+
+Every flag except `--allow` is optional, and `--allow` is only required when the upstream it belongs to was declared on the command line rather than in configuration. Omit `--store` and it uses a per-user application data directory. Omit `--token-key` and one is generated for the run, with a warning: transfer URLs already handed out stop working when the process restarts, and a second instance cannot serve them.
 
 `--upstream` is repeatable, and the name becomes the first path segment clients address:
 
 ```bash
-gitlfscache --upstream github=https://github.com --upstream ado=https://dev.azure.com/myorg
+gitlfscache --upstream github=https://github.com --allow github='studio/**' \
+            --upstream ado=https://dev.azure.com/myorg --allow ado='myproject/**'
 ```
+
+`--allow` is required at least once per upstream, and is also repeatable. It names the repository paths that upstream may be used for, and the proxy refuses to start without it. Pass `'**'` to allow every repository.
+
+Requiring it is deliberate. Without a list, anyone who can reach the proxy can make it cache objects from any repository they can read, spending the byte budget and evicting the working set that the cache was deployed for. It is not an access control and never grants anything: upstream still authorizes every call with the client's own credential.
 
 ### Pointing a client at it
 
@@ -71,7 +83,13 @@ One setting is enough. The proxy is a complete replacement for the upstream LFS 
 
 ### Configuration
 
-Every value binds from configuration, so anything below is settable by environment variable using `__` as the section separator (`GitLfsCache__Store__MaxSize`).
+Nothing has to be passed as a flag. Configuration comes from three places, each overriding the one before it:
+
+1. **`appsettings.json` in the directory you run from.** Note that this is the working directory, not where the tool is installed, so the file ships with the container but a tool user provides their own.
+2. **A file named with `--config`**, which can live anywhere: `gitlfscache --config /etc/gitlfscache.json`. It is layered over the working-directory file rather than replacing it, so an explicit file only has to carry what differs. A path that does not exist is reported by name and the process exits rather than starting on defaults.
+3. **Environment variables**, using `__` as the section separator (`GitLfsCache__Store__MaxSize`, `GitLfsCache__Upstreams__github__BaseUrl`). This is how the Kubernetes base configures everything.
+
+The flags are a convenience over the same settings and win over all three, so `--max-size 3GB` beats a `--config` file asking for 9GB.
 
 ```json
 {
@@ -88,8 +106,8 @@ Every value binds from configuration, so anything below is settable by environme
     },
     "Fetch": { "FollowerTimeout": "00:05:00" },
     "Upstreams": {
-      "github": { "BaseUrl": "https://github.com" },
-      "ado": { "BaseUrl": "https://dev.azure.com/myorg" }
+      "github": { "BaseUrl": "https://github.com", "Repositories": ["studio/**"] },
+      "ado": { "BaseUrl": "https://dev.azure.com/myorg", "Repositories": ["myproject/**"] }
     }
   }
 }
@@ -104,6 +122,7 @@ Every value binds from configuration, so anything below is settable by environme
 | `Store:LowWaterMark` | The fraction of the budget a sweep reduces the store to. |
 | `Store:StagingMaxAge` | How long an orphaned staging file from a crashed write survives. |
 | `Fetch:FollowerTimeout` | How long a request waits for another request's fetch before fetching upstream itself. |
+| `Upstreams:<name>:Repositories` | Required. Path patterns this upstream may serve, matched against the whole path after the upstream key, with `*` inside one segment and `**` across segments. An entry normally ends in `**`, because the path continues into `info/lfs/...`. Use `**` to allow everything. |
 
 Configuration is validated at startup and the process refuses to run on a bad value, reporting every problem at once and naming the setting each came from. That includes a store root that is not writable: a cache proxy whose volume is missing looks healthy from the outside and then fails every transfer, which is worse than a pod that will not start and says why.
 

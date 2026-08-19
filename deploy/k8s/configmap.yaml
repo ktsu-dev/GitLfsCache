@@ -22,3 +22,10 @@ data:
   # One entry per upstream. The key is the first path segment clients address, so this upstream is
   # reached at https://lfs-cache.example.com/github/<owner>/<repo>.git/info/lfs
   GitLfsCache__Upstreams__github__BaseUrl: https://github.com
+
+  # Required: which repository paths this upstream may be used for. Matched against the whole path
+  # after the upstream key, so an entry normally ends in ** because that path continues into
+  # info/lfs/objects/batch and the like. Narrow this to the repositories the cache is deployed for:
+  # left open, any caller who can reach the proxy can displace the working set with traffic it was
+  # not sized for. "**" allows everything.
+  GitLfsCache__Upstreams__github__Repositories__0: studio/**

@@ -9,6 +9,7 @@ using System.Text.Json.Nodes;
 using ktsu.GitLfsCache.Batch;
 using ktsu.GitLfsCache.Configuration;
 using ktsu.GitLfsCache.Fetching;
+using ktsu.GitLfsCache.Locks;
 using ktsu.GitLfsCache.Observability;
 using ktsu.GitLfsCache.Storage;
 using ktsu.GitLfsCache.Tokens;
@@ -26,22 +27,28 @@ using Microsoft.Extensions.Options;
 /// that across five endpoint classes would mean five copies of the same preamble.
 /// </remarks>
 /// <param name="registry">Resolves upstream keys.</param>
+/// <param name="allowList">Decides which repository paths an upstream may be used for.</param>
 /// <param name="upstreamClient">Sends requests upstream.</param>
 /// <param name="codec">Decodes transfer tokens.</param>
 /// <param name="rewriter">Rewrites batch responses.</param>
 /// <param name="store">The local object store.</param>
 /// <param name="coalescer">Keeps concurrent misses to one upstream fetch.</param>
+/// <param name="lockLists">Answers lock listings from a snapshot.</param>
+/// <param name="lockSnapshots">Holds lock snapshots, so a relayed change can invalidate one.</param>
 /// <param name="publicUrls">Resolves the base URL rewritten hrefs point at.</param>
 /// <param name="metrics">Cache counters.</param>
 /// <param name="options">The configured options.</param>
 /// <param name="logger">Logger.</param>
 public sealed class GitLfsCacheHandler(
 	IUpstreamRegistry registry,
+	IRepositoryAllowList allowList,
 	IUpstreamClient upstreamClient,
 	IHrefTokenCodec codec,
 	BatchRewriter rewriter,
 	IObjectStore store,
 	IFetchCoalescer coalescer,
+	LockListService lockLists,
+	ILockSnapshotStore lockSnapshots,
 	PublicUrlResolver publicUrls,
 	CacheMetrics metrics,
 	IOptions<GitLfsCacheOptions> options,
@@ -72,6 +79,18 @@ public sealed class GitLfsCacheHandler(
 			return;
 		}
 
+		// Checked here, once, rather than in each branch below, so batch, transfer, verify and relay
+		// are all covered and any route added later inherits it. Before any upstream call, so a
+		// refused path costs upstream nothing and cannot be used to learn anything about it. A 404
+		// rather than a 403 for the same reason an unknown upstream key is a 404: separating the two
+		// would tell a caller which repositories exist.
+		if (!allowList.IsAllowed(route.Upstream, route.RelayPath))
+		{
+			EndpointLog.RepositoryNotAllowed(logger, route.RelayPath, route.Upstream);
+			context.Response.StatusCode = StatusCodes.Status404NotFound;
+			return;
+		}
+
 		Uri upstreamBase = resolved;
 
 		CancellationToken cancellationToken = context.RequestAborted;
@@ -92,6 +111,19 @@ public sealed class GitLfsCacheHandler(
 
 			case LfsRouteKind.Verify when HttpMethods.IsPost(context.Request.Method):
 				await VerifyAsync(context, route, cancellationToken).ConfigureAwait(false);
+				return;
+
+			case LfsRouteKind.Locks when HttpMethods.IsGet(context.Request.Method):
+				await LockListAsync(context, route, upstreamBase, cancellationToken).ConfigureAwait(false);
+				return;
+
+			// Creation and release are relayed, never terminated, because upstream is the only thing
+			// that may grant or release a lock. The snapshot is dropped afterwards so the change this
+			// client just made is visible to the next listing rather than waiting out the lifetime.
+			case LfsRouteKind.Locks when HttpMethods.IsPost(context.Request.Method):
+			case LfsRouteKind.LocksUnlock when HttpMethods.IsPost(context.Request.Method):
+				await RelayAsync(context, route, upstreamBase, cancellationToken).ConfigureAwait(false);
+				InvalidateLocksIfChanged(context, route);
 				return;
 
 			default:
@@ -370,6 +402,104 @@ public sealed class GitLfsCacheHandler(
 			.ConfigureAwait(false);
 
 		await CopyResponseAsync(response, context, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <summary>
+	/// Answers a lock listing, from the snapshot when that is both possible and permitted.
+	/// </summary>
+	private async Task LockListAsync(
+		HttpContext context,
+		LfsRoute route,
+		Uri upstreamBase,
+		CancellationToken cancellationToken)
+	{
+		LockSnapshotKey key = new(
+			route.Upstream,
+			route.RepositoryPath,
+			context.Request.Query["refspec"].FirstOrDefault());
+
+		LockListOutcome outcome = await lockLists
+			.ResolveAsync(key, upstreamBase, context.Request.Headers.Authorization.ToString(), cancellationToken)
+			.ConfigureAwait(false);
+
+		switch (outcome.Kind)
+		{
+			case LockListOutcomeKind.Refuse:
+				// Upstream's own refusal, not a proxy interpretation of it.
+				context.Response.StatusCode = (int)outcome.Status!.Value;
+				return;
+
+			case LockListOutcomeKind.Serve:
+				await WriteLockPageAsync(context, outcome.Snapshot!, cancellationToken).ConfigureAwait(false);
+				return;
+
+			default:
+				await RelayAsync(context, route, upstreamBase, cancellationToken).ConfigureAwait(false);
+				return;
+		}
+	}
+
+	/// <summary>
+	/// Writes one page of a snapshot, applying the filters and cursor the client asked for.
+	/// </summary>
+	private static async Task WriteLockPageAsync(
+		HttpContext context,
+		LockSnapshot snapshot,
+		CancellationToken cancellationToken)
+	{
+		IReadOnlyList<LockEntry> matches = snapshot.Filter(
+			context.Request.Query["path"].FirstOrDefault(),
+			context.Request.Query["id"].FirstOrDefault());
+
+		int offset = 0;
+
+		// A cursor from a snapshot that has since been replaced restarts the walk rather than being
+		// applied to a different ordering, which would silently skip or repeat locks.
+		if (LockCursor.TryDecode(context.Request.Query["cursor"].FirstOrDefault(), out LockCursor? cursor)
+			&& cursor.SnapshotId == snapshot.Id)
+		{
+			offset = cursor.Offset;
+		}
+
+		int? limit = int.TryParse(
+			context.Request.Query["limit"].FirstOrDefault(),
+			System.Globalization.NumberStyles.None,
+			System.Globalization.CultureInfo.InvariantCulture,
+			out int requested)
+			? requested
+			: null;
+
+		(IReadOnlyList<LockEntry> page, int? nextOffset) = LockSnapshot.Paginate(matches, offset, limit);
+
+		JsonObject body = LockListParser.BuildResponse(
+			page,
+			nextOffset is int next ? new LockCursor(snapshot.Id, next).Encode() : null);
+
+		context.Response.StatusCode = StatusCodes.Status200OK;
+		context.Response.ContentType = UpstreamRequests.LfsMediaType;
+
+		await context.Response
+			.WriteAsync(body.ToJsonString(), cancellationToken)
+			.ConfigureAwait(false);
+	}
+
+	/// <summary>
+	/// Drops the snapshot when a relayed lock change actually took effect.
+	/// </summary>
+	/// <remarks>
+	/// Gated on the response status, because invalidating after a refused creation would throw away a
+	/// perfectly good snapshot every time two people raced for the same file, which is exactly when
+	/// the cache is under the most load.
+	/// </remarks>
+	private void InvalidateLocksIfChanged(HttpContext context, LfsRoute route)
+	{
+		if (context.Response.StatusCode is >= 200 and < 300)
+		{
+			lockSnapshots.Invalidate(new LockSnapshotKey(
+				route.Upstream,
+				route.RepositoryPath,
+				context.Request.Query["refspec"].FirstOrDefault()));
+		}
 	}
 
 	private async Task RelayAsync(

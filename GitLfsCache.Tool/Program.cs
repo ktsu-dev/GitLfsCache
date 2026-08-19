@@ -45,6 +45,12 @@ internal static class Program
 				"Base64 encoded 32 byte key protecting rewritten transfer URLs. Generated for this run when omitted.",
 		};
 
+		Option<string?> configFile = new("--config", "-c")
+		{
+			Description =
+				"Path to a JSON configuration file to load. Layered over any appsettings.json in the working directory, and still overridden by the flags below.",
+		};
+
 		Option<string?> publicBaseUrl = new("--public-base-url")
 		{
 			Description =
@@ -57,20 +63,46 @@ internal static class Program
 			AllowMultipleArgumentsPerToken = false,
 		};
 
+		Option<string[]> allow = new("--allow", "-a")
+		{
+			Description =
+				"A repository path pattern an upstream may serve, as name=pattern, for example github=studio/**. Repeatable. Required at least once per upstream.",
+			AllowMultipleArgumentsPerToken = false,
+		};
+
 		RootCommand root = new("A caching reverse proxy for the Git LFS HTTP API.")
 		{
 			port,
+			configFile,
 			store,
 			maxSize,
 			tokenKey,
 			publicBaseUrl,
 			upstreams,
+			allow,
 		};
 
 		root.SetAction(async (parseResult, cancellationToken) =>
 		{
 			Dictionary<string, string?> overrides = [];
 			int listenPort = parseResult.GetValue(port) ?? 8080;
+			string? configPath = null;
+
+			if (parseResult.GetValue(configFile) is string requestedConfig)
+			{
+				configPath = Path.GetFullPath(requestedConfig);
+
+				// Checked here rather than left to the configuration provider, which throws a
+				// FileNotFoundException with a stack trace. Someone who mistyped a path should get one
+				// line naming the path they gave.
+				if (!File.Exists(configPath))
+				{
+					await Console.Error
+						.WriteLineAsync($"No configuration file at '{configPath}'.")
+						.ConfigureAwait(false);
+					return 1;
+				}
+			}
 
 			if (parseResult.GetValue(store) is string storeRoot)
 			{
@@ -110,7 +142,31 @@ internal static class Program
 				overrides[$"GitLfsCache:Upstreams:{entry[..separator]}:BaseUrl"] = entry[(separator + 1)..];
 			}
 
-			return await RunAsync(overrides, listenPort, cancellationToken).ConfigureAwait(false);
+			// Counted per upstream so repeating the flag appends rather than overwrites, which is
+			// what a repeatable option has to do to be useful.
+			Dictionary<string, int> allowCounts = new(StringComparer.OrdinalIgnoreCase);
+
+			foreach (string entry in parseResult.GetValue(allow) ?? [])
+			{
+				int separator = entry.IndexOf('=', StringComparison.Ordinal);
+
+				if (separator <= 0 || separator == entry.Length - 1)
+				{
+					await Console.Error
+						.WriteLineAsync(
+							$"'{entry}' is not a valid allow entry. Use name=pattern, for example github=studio/**.")
+						.ConfigureAwait(false);
+					return 1;
+				}
+
+				string name = entry[..separator];
+				int index = allowCounts.TryGetValue(name, out int used) ? used : 0;
+				allowCounts[name] = index + 1;
+
+				overrides[$"GitLfsCache:Upstreams:{name}:Repositories:{index}"] = entry[(separator + 1)..];
+			}
+
+			return await RunAsync(overrides, listenPort, configPath, cancellationToken).ConfigureAwait(false);
 		});
 
 		return await root.Parse(args)
@@ -121,6 +177,7 @@ internal static class Program
 	private static async Task<int> RunAsync(
 		Dictionary<string, string?> overrides,
 		int port,
+		string? configPath,
 		CancellationToken cancellationToken)
 	{
 		WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -130,6 +187,14 @@ internal static class Program
 			Args = [],
 			ApplicationName = "ktsu.GitLfsCache",
 		});
+
+		// Added after the builder's own sources so an explicitly named file beats an appsettings.json
+		// that happens to be in the working directory, and before ApplyDefaults, which reads
+		// configuration to decide what still needs a default and would otherwise not see this file.
+		if (configPath is not null)
+		{
+			builder.Configuration.AddJsonFile(configPath, optional: false, reloadOnChange: false);
+		}
 
 		ApplyDefaults(builder.Configuration, overrides);
 		builder.Configuration.AddInMemoryCollection(overrides);

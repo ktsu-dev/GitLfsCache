@@ -34,7 +34,11 @@ public class GitLfsCacheOptionsValidatorTests
 		};
 
 		options.TokenKeys.Add(Convert.ToBase64String(new byte[32]));
-		options.Upstreams["github"] = new UpstreamOptions { BaseUrl = new Uri("https://github.com") };
+
+		UpstreamOptions upstream = new() { BaseUrl = new Uri("https://github.com") };
+		upstream.Repositories.Add("**");
+		options.Upstreams["github"] = upstream;
+
 		return options;
 	}
 
@@ -192,5 +196,103 @@ public class GitLfsCacheOptionsValidatorTests
 		Assert.IsNotNull(result.FailureMessage);
 		Assert.Contains("Upstreams", result.FailureMessage);
 		Assert.Contains("TokenKeys", result.FailureMessage);
+	}
+
+	[TestMethod]
+	public void Validate_ListTtlLongerThanAdmissionTtl_Fails()
+	{
+		// A listing served for longer than the authorization proving it may be read would outlive the
+		// only evidence the caller was ever allowed to see it.
+		GitLfsCacheOptions options = Valid();
+		options.Locks.ListTtl = TimeSpan.FromMinutes(5);
+		options.Locks.AdmissionTtl = TimeSpan.FromMinutes(1);
+
+		ValidateOptionsResult result = Validate(options);
+
+		Assert.IsFalse(result.Succeeded);
+		Assert.IsNotNull(result.FailureMessage);
+		Assert.Contains("Locks:ListTtl", result.FailureMessage);
+		Assert.Contains("Locks:AdmissionTtl", result.FailureMessage);
+	}
+
+	[TestMethod]
+	public void Validate_ListTtlEqualToAdmissionTtl_Succeeds()
+	{
+		GitLfsCacheOptions options = Valid();
+		options.Locks.ListTtl = TimeSpan.FromMinutes(1);
+		options.Locks.AdmissionTtl = TimeSpan.FromMinutes(1);
+
+		Assert.IsTrue(Validate(options).Succeeded);
+	}
+
+	[TestMethod]
+	[DataRow("ListTtl")]
+	[DataRow("AdmissionTtl")]
+	[DataRow("RefreshTimeout")]
+	public void Validate_NonPositiveLockDuration_FailsNamingIt(string setting)
+	{
+		GitLfsCacheOptions options = Valid();
+
+		switch (setting)
+		{
+			case "ListTtl":
+				options.Locks.ListTtl = TimeSpan.Zero;
+				break;
+			case "AdmissionTtl":
+				options.Locks.AdmissionTtl = TimeSpan.Zero;
+				break;
+			default:
+				options.Locks.RefreshTimeout = TimeSpan.Zero;
+				break;
+		}
+
+		ValidateOptionsResult result = Validate(options);
+
+		Assert.IsFalse(result.Succeeded);
+		Assert.IsNotNull(result.FailureMessage);
+		Assert.Contains($"Locks:{setting}", result.FailureMessage);
+	}
+
+	[TestMethod]
+	public void Validate_NonPositiveMaxSnapshotLocks_Fails()
+	{
+		GitLfsCacheOptions options = Valid();
+		options.Locks.MaxSnapshotLocks = 0;
+
+		ValidateOptionsResult result = Validate(options);
+
+		Assert.IsFalse(result.Succeeded);
+		Assert.IsNotNull(result.FailureMessage);
+		Assert.Contains("Locks:MaxSnapshotLocks", result.FailureMessage);
+	}
+
+	[TestMethod]
+	public void Validate_UpstreamWithNoRepositories_FailsNamingTheWildcard()
+	{
+		GitLfsCacheOptions options = Valid();
+		options.Upstreams["github"].Repositories.Clear();
+
+		ValidateOptionsResult result = Validate(options);
+
+		Assert.IsFalse(result.Succeeded);
+		Assert.IsNotNull(result.FailureMessage);
+		Assert.Contains("Upstreams:github:Repositories", result.FailureMessage);
+
+		// An operator who does want every repository should learn how from the message itself, since
+		// the alternative is guessing or reading the source.
+		Assert.Contains("**", result.FailureMessage);
+	}
+
+	[TestMethod]
+	public void Validate_EmptyRepositoryPattern_FailsNamingTheIndex()
+	{
+		GitLfsCacheOptions options = Valid();
+		options.Upstreams["github"].Repositories.Add("   ");
+
+		ValidateOptionsResult result = Validate(options);
+
+		Assert.IsFalse(result.Succeeded);
+		Assert.IsNotNull(result.FailureMessage);
+		Assert.Contains("Repositories[1]", result.FailureMessage);
 	}
 }
