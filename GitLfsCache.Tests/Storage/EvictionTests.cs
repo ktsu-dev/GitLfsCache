@@ -25,6 +25,15 @@ public class EvictionTests
 		string maxSize,
 		double lowWaterMark = 0.9)
 	{
+		(ObjectStore store, LeastRecentlyUsedEvictionPolicy policy, FakeTimeProvider time, _) = CreateWithFileSystem(maxSize, lowWaterMark);
+		return (store, policy, time);
+	}
+
+	/// <summary>Builds the store and hands back the file system, for a test that has to disturb it.</summary>
+	private static (ObjectStore Store, LeastRecentlyUsedEvictionPolicy Policy, FakeTimeProvider Time, MockFileSystem FileSystem) CreateWithFileSystem(
+		string maxSize,
+		double lowWaterMark = 0.9)
+	{
 		MockFileSystem fileSystem = new();
 		fileSystem.Directory.CreateDirectory(Root);
 
@@ -37,7 +46,7 @@ public class EvictionTests
 		IOptions<GitLfsCacheOptions> wrapped = Options.Create(options);
 		ObjectStore store = new(fileSystem, wrapped, time, NullLogger<ObjectStore>.Instance);
 
-		return (store, new LeastRecentlyUsedEvictionPolicy(store, wrapped), time);
+		return (store, new LeastRecentlyUsedEvictionPolicy(store, wrapped), time, fileSystem);
 	}
 
 	/// <summary>Stores an object of exactly the requested size and returns its object id.</summary>
@@ -132,26 +141,30 @@ public class EvictionTests
 	}
 
 	[TestMethod]
-	public async Task Evict_ObjectHeldOpen_IsSkippedAndReported()
+	public async Task Evict_ObjectThatCannotBeDeleted_IsSkippedAndReported()
 	{
-		(ObjectStore store, LeastRecentlyUsedEvictionPolicy policy, FakeTimeProvider time) = Create("100B");
+		(ObjectStore store, _, FakeTimeProvider time, _) = CreateWithFileSystem("100B");
 
-		string held = await StoreAsync(store, 100, 'a');
+		string undeletable = await StoreAsync(store, 100, 'a');
 		time.Advance(TimeSpan.FromHours(1));
 		await StoreAsync(store, 100, 'b');
 
-		Stream? stream = store.OpenRead("github", held, out long _);
-		Assert.IsNotNull(stream);
+		// Deletion is made to fail directly rather than by holding the file open. OpenRead asks for
+		// FileShare.Delete precisely so a sweep can remove an object while it is being served, so an
+		// open handle is the one thing that is not meant to stop this. What the sweep does have to
+		// survive is a delete that fails for a reason it cannot control, and this reproduces that
+		// the same way on every host.
+		GitLfsCacheOptions options = new()
+		{
+			Store = new StoreOptions { Root = Root, MaxSize = "100B", LowWaterMark = 0.9 },
+		};
+
+		LeastRecentlyUsedEvictionPolicy policy = new(new UndeletableObjectStore(store, undeletable), Options.Create(options));
 
 		EvictionResult result = policy.Evict();
 
-		await using (stream)
-		{
-			// The mock filesystem refuses to delete an open file, standing in for Windows. The sweep
-			// must report it and move on rather than failing the transfer that holds it.
-			Assert.AreEqual(1, result.SkippedCount);
-			Assert.IsTrue(store.Exists("github", held));
-		}
+		Assert.AreEqual(1, result.SkippedCount);
+		Assert.IsTrue(store.Exists("github", undeletable));
 	}
 
 	[TestMethod]

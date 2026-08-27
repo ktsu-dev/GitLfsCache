@@ -21,13 +21,15 @@ public sealed class StagingHandle : IAsyncDisposable
 {
 	private readonly IFileSystem _fileSystem;
 	private readonly HashingStream _stream;
+	private readonly Action<AbsoluteFilePath>? _onClosed;
 	private bool _published;
 	private bool _disposed;
 
-	internal StagingHandle(IFileSystem fileSystem, AbsoluteFilePath path, Stream sink)
+	internal StagingHandle(IFileSystem fileSystem, AbsoluteFilePath path, Stream sink, Action<AbsoluteFilePath>? onClosed = null)
 	{
 		_fileSystem = fileSystem;
 		_stream = new HashingStream(sink);
+		_onClosed = onClosed;
 		Path = path;
 	}
 
@@ -51,6 +53,11 @@ public sealed class StagingHandle : IAsyncDisposable
 	{
 		await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
 		await _stream.DisposeAsync().ConfigureAwait(false);
+
+		// Nothing is writing to the file once its stream is closed, so the guard lifts here rather
+		// than at disposal. A crashed write that closed without publishing leaves an orphan that
+		// cleanup is then free to collect.
+		_onClosed?.Invoke(Path);
 	}
 
 	/// <inheritdoc />
@@ -63,6 +70,10 @@ public sealed class StagingHandle : IAsyncDisposable
 
 		_disposed = true;
 		await _stream.DisposeAsync().ConfigureAwait(false);
+
+		// Released whether or not the file was published, because either way nothing is still
+		// writing to this path once the handle is gone.
+		_onClosed?.Invoke(Path);
 
 		if (_published)
 		{

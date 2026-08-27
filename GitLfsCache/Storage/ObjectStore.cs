@@ -38,6 +38,12 @@ public sealed class ObjectStore(
 	private const int OidLength = 64;
 
 	private readonly AbsoluteDirectoryPath _root = options.Value.Store.Root.As<AbsoluteDirectoryPath>();
+
+	// The staging files currently open for writing. Windows would refuse to delete these anyway,
+	// because they are opened with FileShare.Read, but POSIX allows unlinking an open file: the
+	// writer keeps its descriptor and the completed transfer then has nothing left to publish. The
+	// guarantee has to come from here to hold on both.
+	private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _openStaging = new(StringComparer.Ordinal);
 	private long _totalBytes;
 
 	/// <inheritdoc />
@@ -97,7 +103,9 @@ public sealed class ObjectStore(
 
 		Stream sink = fileSystem.FileStream.New(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
 
-		return new StagingHandle(fileSystem, path, sink);
+		_openStaging[path.ToString()] = 0;
+
+		return new StagingHandle(fileSystem, path, sink, closed => _openStaging.TryRemove(closed.ToString(), out _));
 	}
 
 	/// <inheritdoc />
@@ -272,7 +280,10 @@ public sealed class ObjectStore(
 	public bool TryDeleteStaging(StagedFile staged)
 	{
 		Ensure.NotNull(staged);
-		return TryDeleteFile(staged.Path);
+
+		// A transfer is still writing to this file. Reporting false leaves it for a later sweep,
+		// which is what the caller already does for a file the host refused to delete.
+		return !_openStaging.ContainsKey(staged.Path.ToString()) && TryDeleteFile(staged.Path);
 	}
 
 	/// <inheritdoc />
