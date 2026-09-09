@@ -10,7 +10,7 @@
     <PackageVersion Include="ktsu.Semantics.Paths" Version="3.3.0" />
     <PackageVersion Include="ktsu.Semantics.Strings" Version="3.3.0" />
     <PackageVersion Include="Testably.Abstractions.FileSystem.Interface" Version="10.3.0" />
-    <PackageVersion Include="System.CommandLine" Version="2.0.11" />
+    <PackageVersion Include="System.CommandLine" Version="2.0.12" />
   </ItemGroup>
   <ItemGroup Label="Test only">
     <PackageVersion Include="Testably.Abstractions.Testing" Version="7.0.2" />
