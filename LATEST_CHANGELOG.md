@@ -1,4 +1,6 @@
-## v1.8.19
+## v1.8.20 (patch)
 
-No significant changes detected since v1.8.19.
+Changes since v1.8.19:
+
+- ci: adopt the consolidated .NET workflow [patch] ([@Claude](https://github.com/Claude))
 
