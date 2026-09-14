@@ -1,6 +1,6 @@
-## v1.8.20 (patch)
+## v1.8.21 (patch)
 
-Changes since v1.8.19:
+Changes since v1.8.20:
 
-- ci: adopt the consolidated .NET workflow [patch] ([@Claude](https://github.com/Claude))
+- Bump the ktsu group with 7 updates ([@dependabot[bot]](https://github.com/dependabot[bot]))
 
