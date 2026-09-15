@@ -157,6 +157,19 @@ public sealed class ObjectStore(
 		}
 		catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
 		{
+			// The check above and the rename are not one atomic step, so another request publishing
+			// the same object can land between them and the rename then fails on an occupied
+			// destination. Uploads never go through the fetch coalescer, so two clients pushing one
+			// blob reach here with nothing coordinating them. Content addressing makes the file that
+			// arrived byte-identical to this one, which is the same outcome the check reports: the
+			// winner stands. Reporting it as a failure would have the caller record a verification
+			// failure, and a benign race is not something to alert on.
+			if (fileSystem.File.Exists(destination))
+			{
+				await handle.DisposeAsync().ConfigureAwait(false);
+				return true;
+			}
+
 			StoreLog.CouldNotPublishObject(logger, failure, oid, upstream);
 			await handle.DisposeAsync().ConfigureAwait(false);
 			return false;

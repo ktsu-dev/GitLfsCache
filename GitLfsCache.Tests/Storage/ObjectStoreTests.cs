@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using ktsu.GitLfsCache.Configuration;
 using ktsu.GitLfsCache.Storage;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -17,6 +18,9 @@ public class ObjectStoreTests
 {
 	private static readonly DateTimeOffset Now = new(2026, 8, 18, 12, 0, 0, TimeSpan.Zero);
 
+	/// <summary>The event id <c>StoreLog.CouldNotPublishObject</c> logs under.</summary>
+	private const int CouldNotPublishObject = 1002;
+
 	/// <summary>
 	/// An absolute root for whichever platform the suite runs on. AbsoluteDirectoryPath requires a
 	/// fully qualified path, so a hard-coded POSIX root would be rejected on Windows.
@@ -25,7 +29,8 @@ public class ObjectStoreTests
 		Path.GetPathRoot(Path.GetTempPath()) ?? Path.DirectorySeparatorChar.ToString(),
 		"gitlfscache-tests");
 
-	private static (ObjectStore Store, MockFileSystem FileSystem, FakeTimeProvider Time) Create()
+	private static (ObjectStore Store, MockFileSystem FileSystem, FakeTimeProvider Time) Create(
+		ILogger<ObjectStore>? logger = null)
 	{
 		MockFileSystem fileSystem = new();
 		fileSystem.Directory.CreateDirectory(Root);
@@ -37,7 +42,11 @@ public class ObjectStoreTests
 
 		FakeTimeProvider time = new(Now);
 
-		ObjectStore store = new(fileSystem, Options.Create(options), time, NullLogger<ObjectStore>.Instance);
+		ObjectStore store = new(
+			fileSystem,
+			Options.Create(options),
+			time,
+			logger ?? NullLogger<ObjectStore>.Instance);
 
 		return (store, fileSystem, time);
 	}
@@ -125,6 +134,44 @@ public class ObjectStoreTests
 
 		Assert.IsTrue(published);
 		Assert.IsFalse(fileSystem.File.Exists(stagingPath));
+	}
+
+	[TestMethod]
+	public async Task PublishAsync_ObjectArrivesBetweenTheCheckAndTheMove_SucceedsWithoutReportingAFailure()
+	{
+		RecordingLogger logger = new();
+		(ObjectStore store, MockFileSystem fileSystem, _) = Create(logger);
+		(byte[] content, string oid) = Content("published twice at once");
+		string destination = fileSystem.Path.Combine(Root, "github", "objects", oid[..2], oid[2..4], oid);
+
+		StagingHandle handle = store.OpenStaging("github");
+		string stagingPath = handle.Path;
+		await handle.Stream.WriteAsync(content, CancellationToken.None);
+
+		// Two uploads of one blob are not coordinated, so both can pass the exists check and then both
+		// rename. Publishing the winner's copy from inside this one's rename puts the object in place
+		// in exactly that window, which is what the loser of the real race finds.
+		bool raced = false;
+		fileSystem.Intercept.Event(
+			_ =>
+			{
+				raced = true;
+				fileSystem.File.WriteAllBytes(destination, content);
+			},
+			change => !raced
+				&& change.ChangeType == WatcherChangeTypes.Renamed
+				&& string.Equals(change.Path, fileSystem.Path.GetFullPath(destination), StringComparison.Ordinal));
+
+		bool published = await store.PublishAsync(handle, "github", oid, CancellationToken.None);
+
+		Assert.IsTrue(raced, "The other publisher never ran, so the race was not reproduced.");
+		Assert.IsTrue(published, "Losing the race to a byte-identical object is not a publish failure.");
+		Assert.IsTrue(store.Exists("github", oid));
+		Assert.IsFalse(fileSystem.File.Exists(stagingPath), "Staging must not survive the race.");
+		CollectionAssert.DoesNotContain(
+			logger.Events,
+			CouldNotPublishObject,
+			"A duplicate publish must not be reported as a publish failure.");
 	}
 
 	[TestMethod]
@@ -328,5 +375,25 @@ public class ObjectStoreTests
 
 		Assert.HasCount(0, store.Enumerate().ToList());
 		Assert.HasCount(0, store.EnumerateStaging().ToList());
+	}
+
+	/// <summary>
+	/// Records the event ids the store logs, so a test can assert on what it did not report as well
+	/// as on what it did.
+	/// </summary>
+	private sealed class RecordingLogger : ILogger<ObjectStore>
+	{
+		public List<int> Events { get; } = [];
+
+		public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+		public bool IsEnabled(LogLevel logLevel) => true;
+
+		public void Log<TState>(
+			LogLevel logLevel,
+			EventId eventId,
+			TState state,
+			Exception? exception,
+			Func<TState, Exception?, string> formatter) => Events.Add(eventId.Id);
 	}
 }
