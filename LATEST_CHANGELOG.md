@@ -1,6 +1,4 @@
-## v1.8.22 (patch)
+## v1.8.22
 
-Changes since v1.8.21:
-
-- fix: treat a lost publish race as the duplicate it is [patch] ([@matt-edmondson](https://github.com/matt-edmondson))
+No significant changes detected since v1.8.22.
 
