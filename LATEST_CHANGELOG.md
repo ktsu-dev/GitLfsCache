@@ -1,7 +1,6 @@
-## v1.8.23 (patch)
+## v1.8.24 (patch)
 
-Changes since v1.8.22:
+Changes since v1.8.23:
 
-- Gate Dependabot auto-merge on CI actually being green ([@Claude](https://github.com/Claude))
-- refactor: split the lock routes into their own handler [patch] ([@matt-edmondson](https://github.com/matt-edmondson))
+- Bump the ktsu group with 7 updates ([@dependabot[bot]](https://github.com/dependabot[bot]))
 
