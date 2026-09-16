@@ -98,6 +98,9 @@ public static class GitLfsCacheServiceCollectionExtensions
 			return readiness;
 		});
 		services.AddSingleton<CacheMetrics>();
+		services.AddSingleton<UpstreamRelay>();
+		services.AddSingleton<ObjectRouteHandler>();
+		services.AddSingleton<LockRouteHandler>();
 		services.AddSingleton<GitLfsCacheHandler>();
 
 		services.AddMetrics();
