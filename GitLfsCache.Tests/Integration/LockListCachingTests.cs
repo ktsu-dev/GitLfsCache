@@ -251,6 +251,43 @@ public class LockListCachingTests
 	}
 
 	[TestMethod]
+	[DataRow("/locks", "{\"path\":\"b\",\"ref\":{\"name\":\"refs/heads/main\"}}", 2, DisplayName = "Create")]
+	[DataRow("/locks/1/unlock", "{\"ref\":{\"name\":\"refs/heads/main\"}}", 0, DisplayName = "Unlock")]
+	public async Task ChangingALock_InvalidatesASnapshotListedUnderARefspec(string change, string body, int expected)
+	{
+		// git-lfs lists with ?refspec= but carries the ref of a create or unlock in the body, so the
+		// change never names the snapshot the listing was cached under.
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		fixture.Upstream.Locks.Add("a");
+		const string Refspec = "?refspec=refs/heads/main";
+
+		Assert.HasCount(1, (await ListLocksAsync(fixture, Refspec))["locks"]!.AsArray());
+
+		if (expected > 1)
+		{
+			fixture.Upstream.Locks.Add("b");
+		}
+		else
+		{
+			fixture.Upstream.Locks.Clear();
+		}
+
+		using (HttpClient client = fixture.Client)
+		{
+			using HttpRequestMessage request = new(HttpMethod.Post, $"{LfsPath}{change}")
+			{
+				Content = new StringContent(body, Encoding.UTF8, "application/vnd.git-lfs+json"),
+			};
+
+			request.Headers.TryAddWithoutValidation("Authorization", Credential);
+			using HttpResponseMessage response = await client.SendAsync(request);
+			Assert.IsTrue(response.IsSuccessStatusCode, $"{(int)response.StatusCode}");
+		}
+
+		Assert.HasCount(expected, (await ListLocksAsync(fixture, Refspec))["locks"]!.AsArray());
+	}
+
+	[TestMethod]
 	public async Task LocksDisabled_RelaysExactlyAsBefore()
 	{
 		// The fallback if the cache is ever suspected of being wrong.

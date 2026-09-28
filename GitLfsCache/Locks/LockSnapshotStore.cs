@@ -33,9 +33,16 @@ public sealed class LockSnapshotStore : ILockSnapshotStore
 	}
 
 	/// <inheritdoc />
-	public void Invalidate(LockSnapshotKey key)
+	public void Invalidate(string upstream, string repositoryPath)
 	{
-		Ensure.NotNull(key);
-		_snapshots.TryRemove(key, out _);
+		Ensure.NotNull(upstream);
+		Ensure.NotNull(repositoryPath);
+
+		foreach (LockSnapshotKey key in _snapshots.Keys.Where(key =>
+			string.Equals(key.Upstream, upstream, StringComparison.Ordinal)
+			&& string.Equals(key.RepositoryPath, repositoryPath, StringComparison.Ordinal)))
+		{
+			_snapshots.TryRemove(key, out _);
+		}
 	}
 }
