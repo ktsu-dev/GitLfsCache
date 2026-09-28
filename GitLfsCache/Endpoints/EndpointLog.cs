@@ -80,4 +80,10 @@ internal static partial class EndpointLog
 		Level = LogLevel.Warning,
 		Message = "Request for '{Path}' refused: no pattern in upstream '{Upstream}' allows it.")]
 	public static partial void RepositoryNotAllowed(ILogger logger, string path, string upstream);
+
+	[LoggerMessage(
+		EventId = 2012,
+		Level = LogLevel.Warning,
+		Message = "Could not open a staging file for {Oid} under upstream '{Upstream}'; the transfer is relayed without caching.")]
+	public static partial void StagingUnavailable(ILogger logger, Exception exception, string oid, string upstream);
 }

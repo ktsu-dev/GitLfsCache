@@ -223,13 +223,16 @@ internal sealed class ObjectRouteHandler(
 			return;
 		}
 
-		StagingHandle staging = store.OpenStaging(route.Upstream);
+		// Without a staging file the upload is still relayed, through a tee into nothing so the relayed
+		// byte count is kept. Failing the push because the cache cannot take a copy would make the
+		// cache the reason a push failed.
+		StagingHandle? staging = TryOpenStaging(route.Upstream, token.Oid);
 
-		await using (staging.ConfigureAwait(false))
+		try
 		{
 			ReadTeeStream teed = new(
 				context.Request.Body,
-				staging.Stream,
+				staging?.Stream ?? Stream.Null,
 				failure => EndpointLog.StoreSinkFailed(logger, failure, token.Oid));
 
 			await using ConfiguredAsyncDisposable teedDisposal = teed.ConfigureAwait(false);
@@ -247,7 +250,7 @@ internal sealed class ObjectRouteHandler(
 
 			// The object is published only after upstream accepts it. Caching an upload upstream
 			// rejected would serve bytes no one can verify against the real remote.
-			if (response.IsSuccessStatusCode && teed.SinkIsLive)
+			if (staging is not null && response.IsSuccessStatusCode && teed.SinkIsLive)
 			{
 				if (await store.PublishAsync(staging, route.Upstream, token.Oid, cancellationToken)
 					.ConfigureAwait(false))
@@ -261,6 +264,13 @@ internal sealed class ObjectRouteHandler(
 			}
 
 			await UpstreamRelay.CopyResponseAsync(response, context, cancellationToken).ConfigureAwait(false);
+		}
+		finally
+		{
+			if (staging is not null)
+			{
+				await staging.DisposeAsync().ConfigureAwait(false);
+			}
 		}
 	}
 
@@ -319,7 +329,12 @@ internal sealed class ObjectRouteHandler(
 
 		await using ConfiguredAsyncDisposable upstreamBodyDisposal = upstreamBody.ConfigureAwait(false);
 
-		if (!storeLocally)
+		// By now upstream's status and headers are already on the response, so a staging file that
+		// cannot be opened has to fall back to relaying: throwing here would turn an object upstream
+		// served into a 500.
+		StagingHandle? staging = storeLocally ? TryOpenStaging(route.Upstream, token.Oid) : null;
+
+		if (staging is null)
 		{
 			long streamed = await StreamTee
 				.CopyAsync(upstreamBody, context.Response.Body, null, null, cancellationToken)
@@ -328,8 +343,6 @@ internal sealed class ObjectRouteHandler(
 			metrics.RecordMiss(route.Upstream, streamed);
 			return false;
 		}
-
-		StagingHandle staging = store.OpenStaging(route.Upstream);
 
 		await using (staging.ConfigureAwait(false))
 		{
@@ -356,6 +369,31 @@ internal sealed class ObjectRouteHandler(
 			}
 
 			return published;
+		}
+	}
+
+	/// <summary>
+	/// Opens a staging file, or reports why the transfer has to go uncached.
+	/// </summary>
+	/// <remarks>
+	/// The startup probe only proves the store was writable when the process started. A permissions
+	/// change, a read-only remount, inode exhaustion or a stray file where the staging directory
+	/// belongs all appear later, and each one should cost a cold cache rather than a failed transfer.
+	/// </remarks>
+	/// <param name="upstream">The upstream key the object belongs to.</param>
+	/// <param name="oid">The object id, for the log.</param>
+	/// <returns>The open staging file, or null when one could not be opened.</returns>
+	private StagingHandle? TryOpenStaging(string upstream, string oid)
+	{
+		try
+		{
+			return store.OpenStaging(upstream);
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+		{
+			EndpointLog.StagingUnavailable(logger, exception, oid, upstream);
+			metrics.RecordStagingFailure(upstream);
+			return null;
 		}
 	}
 

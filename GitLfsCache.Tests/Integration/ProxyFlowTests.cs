@@ -2,11 +2,13 @@
 
 namespace ktsu.GitLfsCache.Tests.Integration;
 
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
+using ktsu.GitLfsCache.Observability;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 [TestClass]
@@ -306,6 +308,84 @@ public class ProxyFlowTests
 		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
 		CollectionAssert.AreEqual(content, fixture.Upstream.Uploaded[oid]);
 		Assert.IsTrue(fixture.Store.Exists("github", oid), "A pushed object should be cached for the next fetch.");
+	}
+
+	/// <summary>
+	/// Puts a file where the upstream's staging directory belongs, so no staging file can be opened.
+	/// </summary>
+	/// <remarks>
+	/// Stands in for every way the store can stop accepting writes after the startup probe passed:
+	/// a permissions change, a read-only remount, inode exhaustion.
+	/// </remarks>
+	private static void BlockStaging(ProxyFixture fixture)
+	{
+		string upstreamDirectory = Path.Combine(ProxyFixture.StoreRoot, "github");
+		fixture.FileSystem.Directory.CreateDirectory(upstreamDirectory);
+		fixture.FileSystem.File.WriteAllText(Path.Combine(upstreamDirectory, "staging"), "not a directory");
+	}
+
+	/// <summary>Counts <c>gitlfscache.staging_failures</c> recorded while the listener is alive.</summary>
+	private sealed class StagingFailureCounter : IDisposable
+	{
+		private readonly MeterListener _listener = new();
+		private long _count;
+
+		public StagingFailureCounter()
+		{
+			_listener.InstrumentPublished = (instrument, listener) =>
+			{
+				if (instrument.Meter.Name == CacheMetrics.MeterName && instrument.Name == "gitlfscache.staging_failures")
+				{
+					listener.EnableMeasurementEvents(instrument);
+				}
+			};
+
+			_listener.SetMeasurementEventCallback<long>((_, value, _, _) => Interlocked.Add(ref _count, value));
+			_listener.Start();
+		}
+
+		public long Count => Interlocked.Read(ref _count);
+
+		public void Dispose() => _listener.Dispose();
+	}
+
+	[TestMethod]
+	public async Task Download_StagingCannotBeOpened_IsServedFromUpstreamWithoutCaching()
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		using StagingFailureCounter failures = new();
+		(byte[] content, string oid) = Object("pulled while the store is broken");
+		fixture.Upstream.AddObject(oid, content);
+		BlockStaging(fixture);
+
+		JsonNode batch = await PostBatchAsync(fixture, "download", oid, content.Length);
+		using HttpClient client = fixture.Client;
+		using HttpResponseMessage response = await client.GetAsync(Relative(HrefOf(batch, "download")));
+
+		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+		CollectionAssert.AreEqual(content, await response.Content.ReadAsByteArrayAsync());
+		Assert.AreEqual(1, fixture.Upstream.FetchCount(oid));
+		Assert.IsFalse(fixture.Store.Exists("github", oid));
+		Assert.AreEqual(1, failures.Count);
+	}
+
+	[TestMethod]
+	public async Task Upload_StagingCannotBeOpened_IsStillRelayedUpstream()
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		using StagingFailureCounter failures = new();
+		(byte[] content, string oid) = Object("pushed while the store is broken");
+		BlockStaging(fixture);
+
+		JsonNode batch = await PostBatchAsync(fixture, "upload", oid, content.Length);
+		using HttpClient client = fixture.Client;
+		using ByteArrayContent body = new(content);
+		using HttpResponseMessage response = await client.PutAsync(Relative(HrefOf(batch, "upload")), body);
+
+		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+		CollectionAssert.AreEqual(content, fixture.Upstream.Uploaded[oid]);
+		Assert.IsFalse(fixture.Store.Exists("github", oid));
+		Assert.AreEqual(1, failures.Count);
 	}
 
 	[TestMethod]
