@@ -79,4 +79,10 @@ internal static partial class StoreLog
 		Level = LogLevel.Error,
 		Message = "The store maintenance sweep failed and will be retried on the next interval.")]
 	public static partial void MaintenanceSweepFailed(ILogger logger, Exception exception);
+
+	[LoggerMessage(
+		EventId = 1009,
+		Level = LogLevel.Warning,
+		Message = "Discarding fetched object {Oid} for {Upstream}: a write to its staging file failed, so the file is incomplete.")]
+	public static partial void DiscardedIncompleteObject(ILogger logger, string upstream, string oid);
 }

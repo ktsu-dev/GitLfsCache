@@ -6,6 +6,8 @@ using System.Security.Cryptography;
 using System.Text;
 using ktsu.GitLfsCache.Configuration;
 using ktsu.GitLfsCache.Storage;
+using ktsu.Semantics.Paths;
+using ktsu.Semantics.Strings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -117,6 +119,42 @@ public class ObjectStoreTests
 		Assert.IsFalse(published);
 		Assert.IsFalse(store.Exists("github", wrongOid));
 		Assert.IsFalse(fileSystem.File.Exists(stagingPath), "Staging must not survive a mismatch.");
+	}
+
+	[TestMethod]
+	[DataRow(60_000, 0, DisplayName = "Single chunk, and it fails")]
+	[DataRow(100_000, 1, DisplayName = "Two chunks, and the last one fails")]
+	public async Task PublishAsync_StagingWriteFailedOnTheLastChunk_DoesNotPublish(int size, int allowedWrites)
+	{
+		(ObjectStore store, MockFileSystem fileSystem, _) = Create();
+		byte[] content = new byte[size];
+
+		for (int index = 0; index < size; index++)
+		{
+			content[index] = (byte)(index % 251);
+		}
+
+		string oid = Convert.ToHexStringLower(SHA256.HashData(content));
+
+		// The failing write is the last one the tee makes, so nothing after it could make the digest
+		// disagree with the oid. Only knowing that a write failed can stop the short file publishing.
+		string stagingPath = fileSystem.Path.Combine(Root, "staging.tmp");
+		Stream file = fileSystem.FileStream.New(stagingPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+		await using StagingHandle handle = new(
+			fileSystem,
+			stagingPath.As<AbsoluteFilePath>(),
+			new FailingWriteStream(file, allowedWrites));
+
+		using MemoryStream source = new(content);
+		using MemoryStream client = new();
+		await StreamTee.CopyAsync(source, client, handle.Stream, null, CancellationToken.None);
+
+		bool published = await store.PublishAsync(handle, "github", oid, CancellationToken.None);
+
+		CollectionAssert.AreEqual(content, client.ToArray(), "The client still gets every byte.");
+		Assert.IsFalse(published, "A staging file that missed a write is incomplete and must not publish.");
+		Assert.IsFalse(store.Exists("github", oid));
+		Assert.IsFalse(fileSystem.File.Exists(stagingPath), "Staging must not survive a failed write.");
 	}
 
 	[TestMethod]

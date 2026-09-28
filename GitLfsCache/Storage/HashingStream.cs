@@ -38,6 +38,15 @@ internal sealed class HashingStream(Stream inner, bool ownsInner = true) : Strea
 	/// <inheritdoc />
 	public override long Length => _written;
 
+	/// <summary>
+	/// Gets a value indicating whether a write to the inner sink has failed.
+	/// </summary>
+	/// <remarks>
+	/// Once a write fails the sink holds an unknown prefix of the content, so the digest no longer
+	/// describes what is on disk even when it matches. Whoever publishes the sink has to check this.
+	/// </remarks>
+	public bool Faulted { get; private set; }
+
 	/// <inheritdoc />
 	public override long Position
 	{
@@ -79,8 +88,19 @@ internal sealed class HashingStream(Stream inner, bool ownsInner = true) : Strea
 	/// <inheritdoc />
 	public override void Write(ReadOnlySpan<byte> buffer)
 	{
+		try
+		{
+			inner.Write(buffer);
+		}
+		catch
+		{
+			Faulted = true;
+			throw;
+		}
+
+		// Digested only once the bytes have reached the sink, so a failed write cannot leave the
+		// digest describing content the sink never received.
 		_hash.AppendData(buffer);
-		inner.Write(buffer);
 		_written += buffer.Length;
 	}
 
@@ -89,8 +109,17 @@ internal sealed class HashingStream(Stream inner, bool ownsInner = true) : Strea
 		ReadOnlyMemory<byte> buffer,
 		CancellationToken cancellationToken = default)
 	{
+		try
+		{
+			await inner.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+		}
+		catch
+		{
+			Faulted = true;
+			throw;
+		}
+
 		_hash.AppendData(buffer.Span);
-		await inner.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
 		_written += buffer.Length;
 	}
 
