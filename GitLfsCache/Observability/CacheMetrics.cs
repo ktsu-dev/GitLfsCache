@@ -34,6 +34,7 @@ public sealed class CacheMetrics : IDisposable
 	private readonly Counter<long> _bytesUploaded;
 	private readonly Counter<long> _objectsStored;
 	private readonly Counter<long> _verificationFailures;
+	private readonly Counter<long> _stagingFailures;
 	private readonly Counter<long> _coalescedWaits;
 	private readonly Counter<long> _rejectedTokens;
 	private readonly Counter<long> _lockListHits;
@@ -62,6 +63,7 @@ public sealed class CacheMetrics : IDisposable
 		_bytesUploaded = _meter.CreateCounter<long>("gitlfscache.upload_bytes_relayed", unit: "By", description: "Bytes relayed to upstream on upload.");
 		_objectsStored = _meter.CreateCounter<long>("gitlfscache.objects_stored", unit: ObjectUnit, description: "Objects verified and published to the store.");
 		_verificationFailures = _meter.CreateCounter<long>("gitlfscache.verification_failures", unit: ObjectUnit, description: "Transfers whose content did not hash to the expected object id.");
+		_stagingFailures = _meter.CreateCounter<long>("gitlfscache.staging_failures", unit: ObjectUnit, description: "Transfers relayed without caching because the store could not open a staging file.");
 		_coalescedWaits = _meter.CreateCounter<long>("gitlfscache.coalesced_waits", unit: RequestUnit, description: "Requests that waited for another request's fetch instead of fetching themselves.");
 		_rejectedTokens = _meter.CreateCounter<long>("gitlfscache.rejected_tokens", unit: RequestUnit, description: "Requests refused because their transfer token was invalid or expired.");
 		_lockListHits = _meter.CreateCounter<long>("gitlfscache.lock_list_hits", unit: RequestUnit, description: "Lock listings answered from a snapshot without reaching upstream.");
@@ -110,6 +112,16 @@ public sealed class CacheMetrics : IDisposable
 	/// <param name="upstream">The upstream key, recorded as a tag.</param>
 	public void RecordVerificationFailure(string upstream) =>
 		_verificationFailures.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records a transfer relayed without caching because no staging file could be opened.</summary>
+	/// <remarks>
+	/// Anything above zero means the store has stopped accepting writes (permissions, a read-only
+	/// remount, inode exhaustion) while clients carry on being served. The cache only goes cold, so
+	/// nothing else makes the condition visible.
+	/// </remarks>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordStagingFailure(string upstream) =>
+		_stagingFailures.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
 
 	/// <summary>Records a request that waited for another request's fetch.</summary>
 	/// <param name="upstream">The upstream key, recorded as a tag.</param>
