@@ -95,7 +95,7 @@ Nothing has to be passed as a flag. Configuration comes from three places, each 
 2. **A file named with `--config`**, which can live anywhere: `gitlfscache --config /etc/gitlfscache.json`. It is layered over the working-directory file rather than replacing it, so an explicit file only has to carry what differs. A path that does not exist is reported by name and the process exits rather than starting on defaults.
 3. **Environment variables**, using `__` as the section separator (`GitLfsCache__Store__MaxSize`, `GitLfsCache__Upstreams__github__BaseUrl`). This is how the Kubernetes base configures everything.
 
-The flags are a convenience over the same settings and win over all three, so `--max-size 3GB` beats a `--config` file asking for 9GB.
+The flags are a convenience over the same settings and win over all three, so `--max-size 3GB` beats a `--config` file asking for 9GB. `--allow` replaces rather than adds to: when it names an upstream, that upstream allows exactly the patterns given on the command line, and any `Repositories` entries for it from the three sources above are discarded. Upstreams no `--allow` names keep their configured list.
 
 ```json
 {
