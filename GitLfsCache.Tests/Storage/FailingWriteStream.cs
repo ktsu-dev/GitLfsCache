@@ -23,7 +23,11 @@ internal sealed class FailingWriteStream(Stream inner, int allowedWrites) : Stre
 	public override long Position
 	{
 		get => inner.Position;
-		set => throw new NotSupportedException();
+		set
+		{
+			_ = value;
+			throw new NotSupportedException();
+		}
 	}
 
 	public override void Flush() => inner.Flush();
