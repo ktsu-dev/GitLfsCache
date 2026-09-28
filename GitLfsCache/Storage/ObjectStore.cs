@@ -127,6 +127,16 @@ public sealed class ObjectStore(
 		string digest = handle.GetDigestHex();
 		await handle.CloseAsync(cancellationToken).ConfigureAwait(false);
 
+		// A tee abandons a failed staging write and carries on serving the client, so a faulted handle
+		// can reach here. Its file is short by at least the failed write, and when that write was the
+		// last one the digest can still match, so the digest alone is not enough to publish on.
+		if (handle.Faulted)
+		{
+			StoreLog.DiscardedIncompleteObject(logger, upstream, oid);
+			await handle.DisposeAsync().ConfigureAwait(false);
+			return false;
+		}
+
 		if (!string.Equals(digest, oid, StringComparison.OrdinalIgnoreCase))
 		{
 			StoreLog.DiscardedMismatchedObject(logger, upstream, digest, oid);
