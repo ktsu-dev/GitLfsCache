@@ -84,6 +84,11 @@ public static class UpstreamRequests
 	/// </remarks>
 	/// <param name="upstreamBase">The configured upstream base URL.</param>
 	/// <param name="repositoryPath">The path between the upstream key and <c>/locks</c>.</param>
+	/// <param name="refspec">
+	/// The ref the client listed under, forwarded as <c>refspec</c>, or null when it sent none. The
+	/// locking API treats the ref as an authentication input, so a walk or probe made on a client's
+	/// behalf has to present the same one the client did.
+	/// </param>
 	/// <param name="cursor">Upstream's cursor for the page to fetch, or null for the first.</param>
 	/// <param name="limit">A page size to request, or null to let upstream choose.</param>
 	/// <param name="authorization">The client's Authorization header, forwarded unchanged.</param>
@@ -91,6 +96,7 @@ public static class UpstreamRequests
 	public static HttpRequestMessage BuildLockListRequest(
 		Uri upstreamBase,
 		string repositoryPath,
+		string? refspec,
 		string? cursor,
 		int? limit,
 		string? authorization)
@@ -99,6 +105,11 @@ public static class UpstreamRequests
 		Ensure.NotNull(repositoryPath);
 
 		List<string> query = [];
+
+		if (refspec is not null)
+		{
+			query.Add($"refspec={Uri.EscapeDataString(refspec)}");
+		}
 
 		if (!string.IsNullOrEmpty(cursor))
 		{

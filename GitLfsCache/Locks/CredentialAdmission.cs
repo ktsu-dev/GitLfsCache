@@ -3,6 +3,7 @@
 namespace ktsu.GitLfsCache.Locks;
 
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using ktsu.GitLfsCache.Configuration;
@@ -42,7 +43,7 @@ public sealed class CredentialAdmission(
 	private readonly Lock _hashGate = new();
 
 	/// <inheritdoc />
-	public bool IsAdmitted(string upstream, string repositoryPath, string? authorization)
+	public bool IsAdmitted(string upstream, string repositoryPath, string? reference, string? authorization)
 	{
 		// An anonymous caller is never admitted. Upstream would refuse it, and admitting it here would
 		// mean a listing served to someone who never proved anything.
@@ -51,7 +52,7 @@ public sealed class CredentialAdmission(
 			return false;
 		}
 
-		string key = Key(upstream, repositoryPath, authorization);
+		string key = Key(upstream, repositoryPath, reference, authorization);
 
 		if (!_admitted.TryGetValue(key, out DateTimeOffset expiry))
 		{
@@ -70,14 +71,14 @@ public sealed class CredentialAdmission(
 	}
 
 	/// <inheritdoc />
-	public void Admit(string upstream, string repositoryPath, string? authorization)
+	public void Admit(string upstream, string repositoryPath, string? reference, string? authorization)
 	{
 		if (string.IsNullOrEmpty(authorization))
 		{
 			return;
 		}
 
-		_admitted[Key(upstream, repositoryPath, authorization)] =
+		_admitted[Key(upstream, repositoryPath, reference, authorization)] =
 			timeProvider.GetUtcNow() + options.Value.Locks.AdmissionTtl;
 
 		if (_admitted.Count > SweepThreshold)
@@ -106,13 +107,18 @@ public sealed class CredentialAdmission(
 	/// Derives the entry key for one credential and repository.
 	/// </summary>
 	/// <remarks>
-	/// The three parts are separated by a character that cannot appear in an upstream key, so no two
-	/// different triples can produce the same input. Without that, an upstream and repository could be
+	/// The parts are separated by a character that cannot appear in an upstream key, so no two
+	/// different combinations can produce the same input. Without that, an upstream and repository could be
 	/// re-split to match a different pair.
 	/// </remarks>
-	private string Key(string upstream, string repositoryPath, string authorization)
+	private string Key(string upstream, string repositoryPath, string? reference, string authorization)
 	{
-		byte[] input = Encoding.UTF8.GetBytes($"{upstream}\n{repositoryPath}\n{authorization}");
+		// The ref goes last and length-prefixed, since unlike the other parts it comes straight from a
+		// query string and may contain the separator. -1 keeps "no ref" apart from an empty one.
+		string scope = reference is null
+			? "-1:"
+			: string.Create(CultureInfo.InvariantCulture, $"{reference.Length}:{reference}");
+		byte[] input = Encoding.UTF8.GetBytes($"{upstream}\n{repositoryPath}\n{authorization}\n{scope}");
 
 		// HMACSHA256 holds mutable state across ComputeHash, so one shared instance needs a gate. The
 		// alternative, an instance per call, allocates on a path taken on every lock request.

@@ -23,9 +23,13 @@ public interface ICredentialAdmission
 	/// </summary>
 	/// <param name="upstream">The upstream key.</param>
 	/// <param name="repositoryPath">The repository the credential was accepted for.</param>
+	/// <param name="reference">
+	/// The ref the credential was presented with, or null for none. Upstream may accept a credential
+	/// for one ref and refuse it for another, so an admission for one does not carry over.
+	/// </param>
 	/// <param name="authorization">The client's Authorization header, exactly as sent.</param>
 	/// <returns><see langword="true"/> when an unexpired admission exists.</returns>
-	public bool IsAdmitted(string upstream, string repositoryPath, string? authorization);
+	public bool IsAdmitted(string upstream, string repositoryPath, string? reference, string? authorization);
 
 	/// <summary>
 	/// Records that upstream accepted this credential for this repository.
@@ -36,6 +40,10 @@ public interface ICredentialAdmission
 	/// </remarks>
 	/// <param name="upstream">The upstream key.</param>
 	/// <param name="repositoryPath">The repository the credential was accepted for.</param>
+	/// <param name="reference">
+	/// The ref the credential was presented with, or null for none. Upstream may accept a credential
+	/// for one ref and refuse it for another, so an admission for one does not carry over.
+	/// </param>
 	/// <param name="authorization">The client's Authorization header, exactly as sent.</param>
-	public void Admit(string upstream, string repositoryPath, string? authorization);
+	public void Admit(string upstream, string repositoryPath, string? reference, string? authorization);
 }

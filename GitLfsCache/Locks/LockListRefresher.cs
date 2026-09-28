@@ -52,6 +52,7 @@ public sealed class LockListRefresher(
 		using HttpRequestMessage request = UpstreamRequests.BuildLockListRequest(
 			upstreamBase,
 			key.RepositoryPath,
+			key.Ref,
 			cursor: null,
 			limit: 1,
 			authorization);
@@ -83,6 +84,7 @@ public sealed class LockListRefresher(
 			using HttpRequestMessage request = UpstreamRequests.BuildLockListRequest(
 				upstreamBase,
 				key.RepositoryPath,
+				key.Ref,
 				cursor,
 				limit: null,
 				authorization);
