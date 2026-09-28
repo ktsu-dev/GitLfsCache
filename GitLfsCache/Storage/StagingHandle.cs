@@ -45,6 +45,12 @@ public sealed class StagingHandle : IAsyncDisposable
 	/// <returns>The digest, in the form a Git LFS object id takes.</returns>
 	public string GetDigestHex() => _stream.GetDigestHex();
 
+	/// <summary>
+	/// Gets a value indicating whether a write to the staging file failed, which leaves it incomplete
+	/// whatever its digest says.
+	/// </summary>
+	public bool Faulted => _stream.Faulted;
+
 	/// <summary>Marks the staging file as published so disposal leaves it alone.</summary>
 	internal void MarkPublished() => _published = true;
 
