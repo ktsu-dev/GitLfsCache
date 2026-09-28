@@ -38,13 +38,11 @@ public sealed class LockSnapshotStore : ILockSnapshotStore
 		Ensure.NotNull(upstream);
 		Ensure.NotNull(repositoryPath);
 
-		foreach (LockSnapshotKey key in _snapshots.Keys)
+		foreach (LockSnapshotKey key in _snapshots.Keys.Where(key =>
+			string.Equals(key.Upstream, upstream, StringComparison.Ordinal)
+			&& string.Equals(key.RepositoryPath, repositoryPath, StringComparison.Ordinal)))
 		{
-			if (string.Equals(key.Upstream, upstream, StringComparison.Ordinal)
-				&& string.Equals(key.RepositoryPath, repositoryPath, StringComparison.Ordinal))
-			{
-				_snapshots.TryRemove(key, out _);
-			}
+			_snapshots.TryRemove(key, out _);
 		}
 	}
 }
