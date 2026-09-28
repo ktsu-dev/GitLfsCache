@@ -231,10 +231,7 @@ internal sealed class LockRouteHandler(
 	{
 		if (context.Response.StatusCode is >= 200 and < 300)
 		{
-			lockSnapshots.Invalidate(new LockSnapshotKey(
-				route.Upstream,
-				route.RepositoryPath,
-				context.Request.Query["refspec"].FirstOrDefault()));
+			lockSnapshots.Invalidate(route.Upstream, route.RepositoryPath);
 		}
 	}
 }

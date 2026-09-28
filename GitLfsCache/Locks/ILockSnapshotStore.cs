@@ -26,12 +26,20 @@ public interface ILockSnapshotStore
 	public void Publish(LockSnapshotKey key, LockSnapshot snapshot);
 
 	/// <summary>
-	/// Drops the snapshot for a repository, so the next read refreshes.
+	/// Drops every snapshot for a repository, whatever ref it was listed under, so the next read of
+	/// any of them refreshes.
 	/// </summary>
 	/// <remarks>
 	/// Called after a lock creation or release the proxy relayed successfully. Locks changed outside
 	/// the proxy are not seen here and are bounded only by the listing lifetime.
+	/// <para>
+	/// Every ref goes, not only the one the change named. A listing carries its ref in the query
+	/// string while a create or unlock carries it in the body, and a client can list under one ref
+	/// and lock under another, so the change cannot reliably name the snapshot it made wrong. Dropping
+	/// the rest only costs a refetch.
+	/// </para>
 	/// </remarks>
-	/// <param name="key">The repository whose snapshot is now known to be wrong.</param>
-	public void Invalidate(LockSnapshotKey key);
+	/// <param name="upstream">The upstream the repository is served from.</param>
+	/// <param name="repositoryPath">The repository whose snapshots are now known to be wrong.</param>
+	public void Invalidate(string upstream, string repositoryPath);
 }

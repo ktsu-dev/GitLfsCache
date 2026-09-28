@@ -86,7 +86,7 @@ public sealed class LockFanOut(
 		// is about to look at them.
 		if (results.Any(result => JsonValues.Bool(result?["ok"]) == true))
 		{
-			snapshots.Invalidate(key);
+			snapshots.Invalidate(key.Upstream, key.RepositoryPath);
 		}
 
 		JsonArray array = [];
