@@ -5,6 +5,7 @@ namespace ktsu.GitLfsCache.Tool;
 using System.CommandLine;
 using System.Security.Cryptography;
 using ktsu.Essentials;
+using ktsu.GitLfsCache.Configuration;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Configuration;
@@ -134,14 +135,18 @@ internal static class Program
 					.ConfigureAwait(false);
 			}
 
-			if (!TryApplyAllows(parseResult.GetValue(allow), overrides, out string? invalidAllow))
+			if (!TryParseAllows(
+				parseResult.GetValue(allow),
+				out Dictionary<string, List<string>> allowLists,
+				out string? invalidAllow))
 			{
 				return await FailAsync(
 					$"'{invalidAllow}' is not a valid allow entry. Use name=pattern, for example github=studio/**.")
 					.ConfigureAwait(false);
 			}
 
-			return await RunAsync(overrides, listenPort, configPath, cancellationToken).ConfigureAwait(false);
+			return await RunAsync(overrides, allowLists, listenPort, configPath, cancellationToken)
+				.ConfigureAwait(false);
 		});
 
 		return await root.Parse(args)
@@ -151,6 +156,7 @@ internal static class Program
 
 	private static async Task<int> RunAsync(
 		Dictionary<string, string?> overrides,
+		Dictionary<string, List<string>> allowLists,
 		int port,
 		string? configPath,
 		CancellationToken cancellationToken)
@@ -176,6 +182,7 @@ internal static class Program
 		builder.Configuration["Kestrel:Endpoints:Http:Url"] = $"http://*:{port}";
 
 		builder.Services.AddGitLfsCache(builder.Configuration);
+		builder.Services.PostConfigure<GitLfsCacheOptions>(options => ReplaceAllowLists(options, allowLists));
 
 		// Behind an ingress the request the proxy sees is not the URL the client used, so the scheme
 		// and host from the forwarded headers are what make derived transfer URLs correct. Without
@@ -279,23 +286,19 @@ internal static class Program
 	}
 
 	/// <summary>
-	/// Binds every <c>--allow</c> flag to configuration.
+	/// Groups every <c>--allow</c> flag by the upstream it names.
 	/// </summary>
-	/// <remarks>
-	/// Indexed per upstream so repeating the flag appends rather than overwrites, which is what a
-	/// repeatable option has to do to be useful.
-	/// </remarks>
 	/// <param name="entries">The flag values, or null when the flag was not given.</param>
-	/// <param name="overrides">Configuration to add to.</param>
+	/// <param name="allowLists">The patterns given for each upstream, in the order they were typed.</param>
 	/// <param name="invalid">The first entry that could not be read, when one could not.</param>
 	/// <returns><see langword="true"/> when every entry was well formed.</returns>
-	private static bool TryApplyAllows(
+	internal static bool TryParseAllows(
 		string[]? entries,
-		Dictionary<string, string?> overrides,
+		out Dictionary<string, List<string>> allowLists,
 		out string? invalid)
 	{
 		invalid = null;
-		Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
+		allowLists = new(StringComparer.OrdinalIgnoreCase);
 
 		foreach (string entry in entries ?? [])
 		{
@@ -305,13 +308,50 @@ internal static class Program
 				return false;
 			}
 
-			int index = counts.TryGetValue(name, out int used) ? used : 0;
-			counts[name] = index + 1;
+			if (!allowLists.TryGetValue(name, out List<string>? patterns))
+			{
+				patterns = [];
+				allowLists[name] = patterns;
+			}
 
-			overrides[$"GitLfsCache:Upstreams:{name}:Repositories:{index}"] = pattern;
+			patterns.Add(pattern);
 		}
 
 		return true;
+	}
+
+	/// <summary>
+	/// Makes each upstream named by <c>--allow</c> allow exactly the patterns given for it.
+	/// </summary>
+	/// <remarks>
+	/// Not written as configuration keys like the other flags. Configuration merges arrays by index,
+	/// so <c>Repositories:0</c> from the command line would replace only the first entry of a list from
+	/// a file or the environment and leave the rest in force: a file allowing <c>studio/**</c> and
+	/// <c>**</c> plus <c>--allow github=only/**</c> would still allow everything. Assigning the list
+	/// after binding, as a post-configure step, is what makes the flag narrow the list rather than patch
+	/// it. Upstreams no flag names keep the list configuration gave them.
+	/// </remarks>
+	/// <param name="options">The options as bound from configuration.</param>
+	/// <param name="allowLists">The patterns given for each upstream.</param>
+	internal static void ReplaceAllowLists(
+		GitLfsCacheOptions options,
+		IReadOnlyDictionary<string, List<string>> allowLists)
+	{
+		foreach ((string name, List<string> patterns) in allowLists)
+		{
+			if (!options.Upstreams.TryGetValue(name, out UpstreamOptions? upstream))
+			{
+				upstream = new UpstreamOptions();
+				options.Upstreams[name] = upstream;
+			}
+
+			upstream.Repositories.Clear();
+
+			foreach (string pattern in patterns)
+			{
+				upstream.Repositories.Add(pattern);
+			}
+		}
 	}
 
 	private static void ApplyDefaults(ConfigurationManager configuration, Dictionary<string, string?> overrides)

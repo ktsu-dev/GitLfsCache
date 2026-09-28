@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GitLfsCache\GitLfsCache.csproj" />
+    <ProjectReference Include="..\GitLfsCache.Tool\GitLfsCache.Tool.csproj" />
   </ItemGroup>
 
   <ItemGroup>
