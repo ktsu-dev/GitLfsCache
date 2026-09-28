@@ -216,6 +216,41 @@ public class LockListCachingTests
 	}
 
 	[TestMethod]
+	[DataRow("?refspec=refs/heads/main", "refspec=refs%2Fheads%2Fmain", DisplayName = "With a refspec")]
+	[DataRow("", null, DisplayName = "Without a refspec")]
+	public async Task CachedListing_ForwardsTheClientsRefspecOnTheWalkAndTheProbe(string query, string? forwarded)
+	{
+		// The snapshot is keyed by ref because upstream may answer differently per ref, so what fills it
+		// and what admits a caller to it have to ask upstream about that same ref.
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		fixture.Upstream.Locks.Add("a");
+
+		await ListLocksAsync(fixture, query, Credential);
+		await ListLocksAsync(fixture, query, OtherCredential);
+
+		StubUpstream.RecordedRequest[] listings =
+		[
+			.. fixture.Upstream.Requests.Where(request => request.Path.EndsWith("/locks", StringComparison.Ordinal)),
+		];
+
+		// The first caller's walk and the second caller's probe.
+		Assert.HasCount(2, listings);
+		Assert.Contains("limit=1", listings[1].Query, "The second request should be the one-page probe.");
+
+		foreach (StubUpstream.RecordedRequest listing in listings)
+		{
+			if (forwarded is null)
+			{
+				Assert.DoesNotContain("refspec", listing.Query);
+			}
+			else
+			{
+				Assert.Contains(forwarded, listing.Query);
+			}
+		}
+	}
+
+	[TestMethod]
 	[DataRow("/locks", "{\"path\":\"b\",\"ref\":{\"name\":\"refs/heads/main\"}}", 2, DisplayName = "Create")]
 	[DataRow("/locks/1/unlock", "{\"ref\":{\"name\":\"refs/heads/main\"}}", 0, DisplayName = "Unlock")]
 	public async Task ChangingALock_InvalidatesASnapshotListedUnderARefspec(string change, string body, int expected)

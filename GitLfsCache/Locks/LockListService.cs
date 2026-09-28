@@ -65,7 +65,7 @@ public sealed class LockListService(
 
 		// A caller already admitted, with a snapshot still inside its lifetime, is the steady state and
 		// costs upstream nothing at all. This is the whole point of the subsystem.
-		if (usable && admission.IsAdmitted(key.Upstream, key.RepositoryPath, authorization))
+		if (usable && admission.IsAdmitted(key.Upstream, key.RepositoryPath, key.Ref, authorization))
 		{
 			metrics.RecordLockListHit(key.Upstream);
 			return LockListOutcome.Serve(current!);
@@ -110,7 +110,7 @@ public sealed class LockListService(
 			return LockListOutcome.Relay();
 		}
 
-		admission.Admit(key.Upstream, key.RepositoryPath, authorization);
+		admission.Admit(key.Upstream, key.RepositoryPath, key.Ref, authorization);
 		return LockListOutcome.Serve(current);
 	}
 
@@ -155,7 +155,7 @@ public sealed class LockListService(
 				snapshots.Publish(key, result.Snapshot!);
 
 				// The walk succeeding is itself upstream's answer that this caller may read these locks.
-				admission.Admit(key.Upstream, key.RepositoryPath, authorization);
+				admission.Admit(key.Upstream, key.RepositoryPath, key.Ref, authorization);
 				ticket.Complete(published: true);
 				return LockListOutcome.Serve(result.Snapshot!);
 

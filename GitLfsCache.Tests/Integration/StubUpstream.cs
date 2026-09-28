@@ -91,7 +91,8 @@ internal sealed class StubUpstream : HttpMessageHandler
 				request.Headers.TryGetValues("Authorization", out IEnumerable<string>? authorization)
 					? string.Join(",", authorization)
 					: null,
-				request.Headers.Range?.ToString()));
+				request.Headers.Range?.ToString(),
+				request.RequestUri!.Query));
 		}
 
 		if (path.EndsWith("/unlock", StringComparison.Ordinal))
@@ -431,5 +432,6 @@ internal sealed class StubUpstream : HttpMessageHandler
 	/// <param name="Path">The absolute path.</param>
 	/// <param name="Authorization">The Authorization header, or null when absent.</param>
 	/// <param name="Range">The Range header, or null when absent.</param>
-	internal sealed record RecordedRequest(string Method, string Path, string? Authorization, string? Range);
+	/// <param name="Query">The query string, including its leading <c>?</c>, or empty when absent.</param>
+	internal sealed record RecordedRequest(string Method, string Path, string? Authorization, string? Range, string Query);
 }
