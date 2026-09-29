@@ -1,4 +1,6 @@
-## v1.10.0
+## v1.10.1 (patch)
 
-No significant changes detected since v1.10.0.
+Changes since v1.10.0:
+
+- Move CI onto the shared ci-shared.yml pipeline ([@Claude](https://github.com/Claude))
 
