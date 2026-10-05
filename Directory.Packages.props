@@ -3,7 +3,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Polyfill" Version="11.4.1" />
+    <PackageVersion Include="Polyfill" Version="11.4.2" />
     <PackageVersion Include="ktsu.Essentials" Version="2.10.1" />
     <PackageVersion Include="ktsu.Essentials.EncryptionProviders.Aes" Version="2.10.1" />
     <PackageVersion Include="ktsu.Essentials.FileSystemProviders.Native" Version="2.10.1" />
