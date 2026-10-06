@@ -1,7 +1,4 @@
-## v1.11.0 (minor)
+## v1.11.0
 
-Changes since v1.10.0:
-
-- Key the cache by the configured upstream spelling, not the request's [minor] ([@Claude](https://github.com/Claude))
-- Move CI onto the shared ci-shared.yml pipeline ([@Claude](https://github.com/Claude))
+No significant changes detected since v1.11.0.
 
