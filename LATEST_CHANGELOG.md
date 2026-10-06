@@ -1,7 +1,7 @@
-## v1.10.2-pre.2 (prerelease)
+## v1.11.0 (minor)
 
-Changes since v1.10.2-pre.1:
+Changes since v1.10.0:
 
-- Bump Polyfill from 11.4.1 to 11.4.2 ([@dependabot[bot]](https://github.com/dependabot[bot]))
-- Bump the ktsu group with 2 updates ([@dependabot[bot]](https://github.com/dependabot[bot]))
+- Key the cache by the configured upstream spelling, not the request's [minor] ([@Claude](https://github.com/Claude))
+- Move CI onto the shared ci-shared.yml pipeline ([@Claude](https://github.com/Claude))
 
