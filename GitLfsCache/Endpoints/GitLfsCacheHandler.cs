@@ -49,12 +49,17 @@ internal sealed class GitLfsCacheHandler(
 			return;
 		}
 
-		if (!registry.TryResolve(route.Upstream, out Uri? resolved) || resolved is null)
+		if (!registry.TryResolve(route.Upstream, out string canonicalKey, out Uri? resolved) || resolved is null)
 		{
 			EndpointLog.UnknownUpstream(logger, route.Upstream);
 			context.Response.StatusCode = StatusCodes.Status404NotFound;
 			return;
 		}
+
+		// The key matched regardless of case, so from here on it is the configured spelling. Everything
+		// downstream (store paths, fetch coalescing, transfer tokens, lock snapshots and metrics) is
+		// keyed by it, and /GitHub/ and /github/ must share one cache rather than each fill their own.
+		route = route with { Upstream = canonicalKey };
 
 		// Checked here, once, rather than in each branch below, so batch, transfer, verify and relay
 		// are all covered and any route added later inherits it. Before any upstream call, so a

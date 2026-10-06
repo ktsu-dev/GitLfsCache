@@ -16,16 +16,20 @@ using Microsoft.Extensions.Options;
 /// <param name="options">The configured options.</param>
 public sealed class UpstreamRegistry(IOptions<GitLfsCacheOptions> options) : IUpstreamRegistry
 {
-	private readonly Dictionary<string, Uri> _upstreams = options.Value.Upstreams
+	private readonly Dictionary<string, (string Key, Uri BaseUrl)> _upstreams = options.Value.Upstreams
 		.Where(pair => pair.Value.BaseUrl is not null)
 		.ToDictionary(
 			pair => pair.Key,
-			pair => pair.Value.BaseUrl!,
+			pair => (pair.Key, pair.Value.BaseUrl!),
 			StringComparer.OrdinalIgnoreCase);
 
 	/// <inheritdoc />
-	public bool TryResolve(string key, out Uri? baseUrl)
+	public bool TryResolve(string key, out Uri? baseUrl) => TryResolve(key, out _, out baseUrl);
+
+	/// <inheritdoc />
+	public bool TryResolve(string key, out string canonicalKey, out Uri? baseUrl)
 	{
+		canonicalKey = key;
 		baseUrl = null;
 
 		if (string.IsNullOrEmpty(key) || key.Contains('/', StringComparison.Ordinal))
@@ -33,9 +37,10 @@ public sealed class UpstreamRegistry(IOptions<GitLfsCacheOptions> options) : IUp
 			return false;
 		}
 
-		if (_upstreams.TryGetValue(key, out Uri? resolved))
+		if (_upstreams.TryGetValue(key, out (string Key, Uri BaseUrl) resolved))
 		{
-			baseUrl = resolved;
+			canonicalKey = resolved.Key;
+			baseUrl = resolved.BaseUrl;
 			return true;
 		}
 
