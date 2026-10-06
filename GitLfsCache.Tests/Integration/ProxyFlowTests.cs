@@ -33,13 +33,14 @@ public class ProxyFlowTests
 		string operation,
 		string oid,
 		long size,
-		string? authorization = "Basic dXNlcjp0b2tlbg==")
+		string? authorization = "Basic dXNlcjp0b2tlbg==",
+		string lfsPath = LfsPath)
 	{
 		using HttpClient client = fixture.Client;
 
 		using StringContent body = BatchRequest(operation, oid, size);
 
-		using HttpRequestMessage request = new(HttpMethod.Post, $"{LfsPath}/objects/batch")
+		using HttpRequestMessage request = new(HttpMethod.Post, $"{lfsPath}/objects/batch")
 		{
 			Content = body,
 		};
@@ -142,6 +143,27 @@ public class ProxyFlowTests
 
 		CollectionAssert.AreEqual(content, secondBody);
 		Assert.AreEqual(1, fixture.Upstream.FetchCount(oid));
+	}
+
+	[TestMethod]
+	public async Task Download_UpstreamKeyCasingDiffers_SharesOneCacheUnderTheConfiguredKey()
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		(byte[] content, string oid) = Object("one object, two spellings");
+		fixture.Upstream.AddObject(oid, content);
+		using HttpClient client = fixture.Client;
+
+		// The fixture configures the upstream as "github"; this client addresses it as "GitHub".
+		JsonNode mixedCaseBatch = await PostBatchAsync(fixture, "download", oid, content.Length, lfsPath: "/GitHub/owner/repo.git/info/lfs");
+		string mixedCaseHref = HrefOf(mixedCaseBatch, "download");
+		CollectionAssert.AreEqual(content, await client.GetByteArrayAsync(Relative(mixedCaseHref)));
+
+		JsonNode configuredBatch = await PostBatchAsync(fixture, "download", oid, content.Length);
+		CollectionAssert.AreEqual(content, await client.GetByteArrayAsync(Relative(HrefOf(configuredBatch, "download"))));
+
+		Assert.AreEqual(1, fixture.Upstream.FetchCount(oid), "The second spelling should be served from the first spelling's cache");
+		Assert.StartsWith($"https://cache.example/github/owner/repo.git/info/lfs/objects/{oid}?t=", mixedCaseHref);
+		Assert.IsTrue(fixture.Store.Exists("github", oid));
 	}
 
 	[TestMethod]
