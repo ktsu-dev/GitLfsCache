@@ -3,7 +3,9 @@
 namespace ktsu.GitLfsCache.Storage;
 
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO.Abstractions;
+using System.Text;
 using ktsu.GitLfsCache.Configuration;
 using ktsu.Semantics.Paths;
 using ktsu.Semantics.Strings;
@@ -15,7 +17,8 @@ using Microsoft.Extensions.Options;
 /// </summary>
 /// <remarks>
 /// Layout is <c>{root}/{upstream}/objects/{first two}/{next two}/{oid}</c> with staging under
-/// <c>{root}/{upstream}/staging</c>. Staging shares the volume with the objects so publishing is an
+/// <c>{root}/{upstream}/staging</c>, where <c>{upstream}</c> is the key's directory name (see
+/// <see cref="DirectoryNameFor"/>). Staging shares the volume with the objects so publishing is an
 /// atomic rename, and the two-level fan-out mirrors the git-lfs client's own layout, which keeps
 /// directory sizes reasonable into the hundreds of thousands of objects.
 /// <para>
@@ -225,7 +228,7 @@ public sealed class ObjectStore(
 
 		foreach (string upstreamDirectory in fileSystem.Directory.EnumerateDirectories(_root))
 		{
-			string upstream = fileSystem.Path.GetFileName(upstreamDirectory);
+			string upstream = UpstreamFor(fileSystem.Path.GetFileName(upstreamDirectory));
 			string objectsDirectory = fileSystem.Path.Combine(upstreamDirectory, ObjectsDirectoryName);
 
 			if (!fileSystem.Directory.Exists(objectsDirectory))
@@ -346,11 +349,11 @@ public sealed class ObjectStore(
 	}
 
 	private AbsoluteFilePath ObjectPath(string upstream, string oid) => fileSystem.Path
-		.Combine(_root, upstream, ObjectsDirectoryName, oid[..2], oid[2..4], oid)
+		.Combine(_root, DirectoryNameFor(upstream), ObjectsDirectoryName, oid[..2], oid[2..4], oid)
 		.As<AbsoluteFilePath>();
 
 	private AbsoluteDirectoryPath StagingDirectory(string upstream) => fileSystem.Path
-		.Combine(_root, upstream, StagingDirectoryName)
+		.Combine(_root, DirectoryNameFor(upstream), StagingDirectoryName)
 		.As<AbsoluteDirectoryPath>();
 
 	/// <summary>
@@ -364,9 +367,56 @@ public sealed class ObjectStore(
 	private static bool IsValidOid([NotNullWhen(true)] string? oid) =>
 		oid is not null && oid.Length == OidLength && oid.All(char.IsAsciiHexDigitLower);
 
-	private static bool IsValidUpstream([NotNullWhen(true)] string? upstream) =>
-		!string.IsNullOrEmpty(upstream) && upstream.All(IsUpstreamCharacter);
+	private static bool IsValidUpstream([NotNullWhen(true)] string? upstream) => !string.IsNullOrEmpty(upstream);
 
-	private static bool IsUpstreamCharacter(char character) =>
+	/// <summary>
+	/// Maps an upstream key to the name of the directory its tree lives in.
+	/// </summary>
+	/// <remarks>
+	/// A key made only of ASCII letters, digits, <c>-</c> and <c>_</c> is its own directory name, which
+	/// is the layout every store written before other keys were supported already has. Any other key,
+	/// such as the natural <c>gitlab.com</c>, has each byte of its UTF-8 form outside that set written
+	/// as <c>%XX</c>. That is deterministic and reversible, so no two keys share a directory, and an
+	/// escaped name always contains a <c>%</c>, which a plain one never does. It also leaves nothing a
+	/// filesystem would read as a separator or a parent reference, so no key can name a directory
+	/// outside the store root.
+	/// </remarks>
+	/// <param name="upstream">The upstream key.</param>
+	/// <returns>The directory name.</returns>
+	internal static string DirectoryNameFor(string upstream)
+	{
+		if (upstream.All(IsPlainCharacter))
+		{
+			return upstream;
+		}
+
+		StringBuilder name = new(upstream.Length * 3);
+
+		foreach (byte value in Encoding.UTF8.GetBytes(upstream))
+		{
+			if (value < 0x80 && IsPlainCharacter((char)value))
+			{
+				name.Append((char)value);
+			}
+			else
+			{
+				name.Append('%').Append(value.ToString("X2", CultureInfo.InvariantCulture));
+			}
+		}
+
+		return name.ToString();
+	}
+
+	/// <summary>
+	/// Recovers the upstream key from a directory name <see cref="DirectoryNameFor"/> produced.
+	/// </summary>
+	/// <param name="directoryName">The directory name.</param>
+	/// <returns>The upstream key.</returns>
+	internal static string UpstreamFor(string directoryName) =>
+		directoryName.Contains('%', StringComparison.Ordinal)
+			? Uri.UnescapeDataString(directoryName)
+			: directoryName;
+
+	private static bool IsPlainCharacter(char character) =>
 		char.IsAsciiLetterOrDigit(character) || character is '-' or '_';
 }

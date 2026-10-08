@@ -332,6 +332,38 @@ public class ProxyFlowTests
 		Assert.IsTrue(fixture.Store.Exists("github", oid), "A pushed object should be cached for the next fetch.");
 	}
 
+	[TestMethod]
+	public async Task DottedUpstreamKey_DownloadsAndUploadsAreStored()
+	{
+		const string dottedPath = "/gitlab.com/owner/repo.git/info/lfs";
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync(new(StringComparer.Ordinal)
+		{
+			["GitLfsCache:Upstreams:gitlab.com:BaseUrl"] = "https://upstream.example",
+			["GitLfsCache:Upstreams:gitlab.com:Repositories:0"] = "**",
+		});
+		using HttpClient client = fixture.Client;
+
+		(byte[] downloaded, string downloadOid) = Object("fetched through a dotted upstream");
+		fixture.Upstream.AddObject(downloadOid, downloaded);
+		JsonNode downloadBatch = await PostBatchAsync(fixture, "download", downloadOid, downloaded.Length, lfsPath: dottedPath);
+
+		using HttpResponseMessage download = await client.GetAsync(Relative(HrefOf(downloadBatch, "download")));
+
+		Assert.AreEqual(HttpStatusCode.OK, download.StatusCode);
+		CollectionAssert.AreEqual(downloaded, await download.Content.ReadAsByteArrayAsync());
+		Assert.IsTrue(fixture.Store.Exists("gitlab.com", downloadOid));
+
+		(byte[] uploaded, string uploadOid) = Object("pushed through a dotted upstream");
+		JsonNode uploadBatch = await PostBatchAsync(fixture, "upload", uploadOid, uploaded.Length, lfsPath: dottedPath);
+		using ByteArrayContent body = new(uploaded);
+
+		using HttpResponseMessage upload = await client.PutAsync(Relative(HrefOf(uploadBatch, "upload")), body);
+
+		Assert.AreEqual(HttpStatusCode.OK, upload.StatusCode);
+		CollectionAssert.AreEqual(uploaded, fixture.Upstream.Uploaded[uploadOid]);
+		Assert.IsTrue(fixture.Store.Exists("gitlab.com", uploadOid));
+	}
+
 	/// <summary>
 	/// Puts a file where the upstream's staging directory belongs, so no staging file can be opened.
 	/// </summary>
