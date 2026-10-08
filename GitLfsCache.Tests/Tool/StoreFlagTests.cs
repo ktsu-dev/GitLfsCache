@@ -19,6 +19,16 @@ public class StoreFlagTests
 	}
 
 	[TestMethod]
+	public async Task Store_RelativeDirectory_IsAcceptedByTheCommandLine()
+	{
+		// The invalid upstream stops the run after the flags are read and before a server starts, so a
+		// relative --store reaches the same one-line failure path as any other flag mistake.
+		int exitCode = await Program.Main(["--store", "./cache", "--upstream", "not-a-name-url-pair"]);
+
+		Assert.AreEqual(1, exitCode);
+	}
+
+	[TestMethod]
 	public void Store_FullyQualifiedDirectory_IsKeptAsGiven()
 	{
 		string root = Path.Combine(

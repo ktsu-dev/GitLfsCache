@@ -29,7 +29,7 @@ internal static class Program
 	/// <summary>The configuration key the <c>--token-key</c> flag overrides.</summary>
 	private const string TokenKeyKey = "GitLfsCache:TokenKeys:0";
 
-	private static async Task<int> Main(string[] args)
+	internal static async Task<int> Main(string[] args)
 	{
 		Option<int?> port = new("--port", "-p")
 		{
