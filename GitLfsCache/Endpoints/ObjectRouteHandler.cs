@@ -49,6 +49,12 @@ internal sealed class ObjectRouteHandler(
 	private const string TokenQueryParameter = "t";
 
 	/// <summary>
+	/// How many leaders a follower waits for before it fetches for itself, so a run of failing or
+	/// stalled leaders cannot keep a request waiting indefinitely.
+	/// </summary>
+	private const int MaxFollowerAttempts = 3;
+
+	/// <summary>
 	/// Answers a Batch API call, rewriting the hrefs upstream returns to point back here.
 	/// </summary>
 	/// <param name="context">The request context.</param>
@@ -160,49 +166,71 @@ internal sealed class ObjectRouteHandler(
 			return;
 		}
 
-		using IFetchTicket ticket = coalescer.Acquire(route.Upstream, token.Oid);
+		IFetchTicket ticket = coalescer.Acquire(route.Upstream, token.Oid);
 
-		if (!ticket.IsLeader)
+		try
 		{
-			metrics.RecordCoalescedWait(route.Upstream);
-			EndpointLog.WaitingForLeader(logger, token.Oid, route.Upstream);
-
-			bool published = await ticket
-				.WaitForLeaderAsync(options.Value.Fetch.FollowerTimeout, cancellationToken)
-				.ConfigureAwait(false);
-
-			long nowLength = 0;
-			Stream? nowCached = published
-				? store.OpenRead(route.Upstream, token.Oid, out nowLength)
-				: null;
-
-			if (nowCached is not null)
+			if (!ticket.IsLeader)
 			{
-				await using (nowCached.ConfigureAwait(false))
-				{
-					store.Touch(route.Upstream, token.Oid);
-					metrics.RecordHit(route.Upstream, nowLength);
-					await ServeFromStoreAsync(context, nowCached, nowLength, cancellationToken)
-						.ConfigureAwait(false);
-				}
-
-				return;
+				metrics.RecordCoalescedWait(route.Upstream);
 			}
 
-			EndpointLog.LeaderDidNotFinish(logger, token.Oid);
+			// A follower released without the object, because the leader's client went away or the
+			// leader stalled, queues again: one of the released followers becomes the new leader and
+			// the rest wait for it, rather than every one of them fetching the same object at once.
+			for (int attempt = 1; !ticket.IsLeader; attempt++)
+			{
+				EndpointLog.WaitingForLeader(logger, token.Oid, route.Upstream);
+
+				bool published = await ticket
+					.WaitForLeaderAsync(options.Value.Fetch.FollowerTimeout, cancellationToken)
+					.ConfigureAwait(false);
+
+				long nowLength = 0;
+				Stream? nowCached = published
+					? store.OpenRead(route.Upstream, token.Oid, out nowLength)
+					: null;
+
+				if (nowCached is not null)
+				{
+					await using (nowCached.ConfigureAwait(false))
+					{
+						store.Touch(route.Upstream, token.Oid);
+						metrics.RecordHit(route.Upstream, nowLength);
+						await ServeFromStoreAsync(context, nowCached, nowLength, cancellationToken)
+							.ConfigureAwait(false);
+					}
+
+					return;
+				}
+
+				EndpointLog.LeaderDidNotFinish(logger, token.Oid);
+
+				if (attempt >= MaxFollowerAttempts)
+				{
+					break;
+				}
+
+				ticket.Dispose();
+				ticket = coalescer.Acquire(route.Upstream, token.Oid);
+			}
+
+			bool stored = await StreamFromUpstreamAsync(
+				context,
+				route,
+				token,
+				range: null,
+				storeLocally: true,
+				cancellationToken).ConfigureAwait(false);
+
+			if (ticket.IsLeader)
+			{
+				ticket.Complete(stored);
+			}
 		}
-
-		bool stored = await StreamFromUpstreamAsync(
-			context,
-			route,
-			token,
-			range: null,
-			storeLocally: true,
-			cancellationToken).ConfigureAwait(false);
-
-		if (ticket.IsLeader)
+		finally
 		{
-			ticket.Complete(stored);
+			ticket.Dispose();
 		}
 	}
 

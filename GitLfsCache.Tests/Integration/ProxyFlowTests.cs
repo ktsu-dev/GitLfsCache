@@ -558,4 +558,73 @@ public class ProxyFlowTests
 		// This is the property the whole cache exists for: eight clients, one upstream transfer.
 		Assert.AreEqual(1, fixture.Upstream.FetchCount(oid));
 	}
+
+	[TestMethod]
+	public async Task AbortedLeader_HandsTheFetchToOneFollowerInsteadOfEveryFollowerFetching()
+	{
+		const int Followers = 5;
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		using CoalescedWaitCounter waits = new();
+		(byte[] content, string oid) = Object(new string('y', 200_000));
+		fixture.Upstream.AddObject(oid, content);
+		fixture.Upstream.ObjectGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		JsonNode batch = await PostBatchAsync(fixture, "download", oid, content.Length);
+		string href = Relative(HrefOf(batch, "download"));
+		using HttpClient client = fixture.Client;
+
+		// The leader's fetch is held at upstream, and the followers queue behind it.
+		using CancellationTokenSource leaderAbort = new();
+		Task<HttpResponseMessage> leader = client.GetAsync(href, leaderAbort.Token);
+		await WaitUntilAsync(() => fixture.Upstream.FetchCount(oid) == 1);
+		Task<byte[]>[] followers = [.. Enumerable.Range(0, Followers).Select(_ => client.GetByteArrayAsync(href))];
+		await WaitUntilAsync(() => waits.Count == Followers);
+
+		// The leader's client goes away mid-transfer, then upstream is allowed to answer.
+		await leaderAbort.CancelAsync();
+		await Assert.ThrowsAsync<OperationCanceledException>(() => leader);
+		fixture.Upstream.ObjectGate.SetResult();
+
+		foreach (byte[] body in await Task.WhenAll(followers))
+		{
+			CollectionAssert.AreEqual(content, body);
+		}
+
+		// The aborted fetch plus a single replacement, not one fetch per follower.
+		Assert.AreEqual(2, fixture.Upstream.FetchCount(oid));
+	}
+
+	private static async Task WaitUntilAsync(Func<bool> condition)
+	{
+		using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+		while (!condition())
+		{
+			await Task.Delay(10, timeout.Token);
+		}
+	}
+
+	/// <summary>Counts <c>gitlfscache.coalesced_waits</c> recorded while the listener is alive.</summary>
+	private sealed class CoalescedWaitCounter : IDisposable
+	{
+		private readonly MeterListener _listener = new();
+		private long _count;
+
+		public CoalescedWaitCounter()
+		{
+			_listener.InstrumentPublished = (instrument, listener) =>
+			{
+				if (instrument.Meter.Name == CacheMetrics.MeterName && instrument.Name == "gitlfscache.coalesced_waits")
+				{
+					listener.EnableMeasurementEvents(instrument);
+				}
+			};
+
+			_listener.SetMeasurementEventCallback<long>((_, value, _, _) => Interlocked.Add(ref _count, value));
+			_listener.Start();
+		}
+
+		public long Count => Interlocked.Read(ref _count);
+
+		public void Dispose() => _listener.Dispose();
+	}
 }
