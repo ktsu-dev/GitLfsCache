@@ -1,6 +1,6 @@
-## v1.11.1-pre.1 (prerelease)
+## v1.12.0 (minor)
 
 Changes since v1.11.0:
 
-- Bump the ktsu group with 5 updates ([@dependabot[bot]](https://github.com/dependabot[bot]))
+- Evict stale and excess lock snapshots [minor] ([@Claude](https://github.com/Claude))
 
