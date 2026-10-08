@@ -1,6 +1,7 @@
-## v1.12.0 (minor)
+## v1.12.1-pre.1 (prerelease)
 
-Changes since v1.11.0:
+Changes since v1.12.0:
 
-- Evict stale and excess lock snapshots [minor] ([@Claude](https://github.com/Claude))
+- Bump MSTest.Sdk from 4.4.1 to 4.5.1 ([@dependabot[bot]](https://github.com/dependabot[bot]))
+- Bump the ktsu group with 5 updates ([@dependabot[bot]](https://github.com/dependabot[bot]))
 
