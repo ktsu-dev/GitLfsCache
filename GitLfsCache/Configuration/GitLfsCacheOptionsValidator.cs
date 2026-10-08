@@ -214,6 +214,11 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:MaxSnapshotLocks must be greater than zero.");
 		}
 
+		if (locks.MaxSnapshots <= 0)
+		{
+			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:MaxSnapshots must be greater than zero.");
+		}
+
 		if (locks.MaxFanOutConcurrency <= 0)
 		{
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:MaxFanOutConcurrency must be greater than zero.");
