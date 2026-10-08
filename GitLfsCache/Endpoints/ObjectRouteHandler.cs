@@ -144,7 +144,7 @@ internal sealed class ObjectRouteHandler(
 				metrics.RecordHit(route.Upstream, length);
 				EndpointLog.ServedFromCache(logger, token.Oid, route.Upstream);
 
-				await ServeFromStoreAsync(context, cached, length, cancellationToken).ConfigureAwait(false);
+				await ServeFromStoreAsync(context, cached).ConfigureAwait(false);
 			}
 
 			return;
@@ -182,8 +182,7 @@ internal sealed class ObjectRouteHandler(
 				{
 					store.Touch(route.Upstream, token.Oid);
 					metrics.RecordHit(route.Upstream, nowLength);
-					await ServeFromStoreAsync(context, nowCached, nowLength, cancellationToken)
-						.ConfigureAwait(false);
+					await ServeFromStoreAsync(context, nowCached).ConfigureAwait(false);
 				}
 
 				return;
@@ -438,19 +437,11 @@ internal sealed class ObjectRouteHandler(
 		return true;
 	}
 
-	private static async Task ServeFromStoreAsync(
-		HttpContext context,
-		Stream cached,
-		long length,
-		CancellationToken cancellationToken)
-	{
-		context.Response.ContentType = OctetStream;
-		context.Response.ContentLength = length;
-
-		await StreamTee
-			.CopyAsync(cached, context.Response.Body, null, null, cancellationToken)
-			.ConfigureAwait(false);
-	}
+	// ASP.NET Core's range processing answers a Range with 206 and Content-Range, an unsatisfiable
+	// one with 416, and advertises Accept-Ranges: bytes. That is what lets git-lfs resume an
+	// interrupted download of a cached object instead of starting it over.
+	private static Task ServeFromStoreAsync(HttpContext context, Stream cached) =>
+		Results.Stream(cached, OctetStream, enableRangeProcessing: true).ExecuteAsync(context);
 
 	private static void CopyTransferHeaders(HttpResponseMessage response, HttpContext context)
 	{
