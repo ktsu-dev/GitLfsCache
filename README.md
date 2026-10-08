@@ -129,7 +129,7 @@ The flags are a convenience over the same settings and win over all three, so `-
 |---|---|
 | `PublicBaseUrl` | The URL clients actually use. Optional: when unset, each transfer URL is derived from the incoming request, which requires the ingress to send `X-Forwarded-Proto` and `X-Forwarded-Host`. Setting it explicitly is safer, because only the operator knows for certain what clients addressed. |
 | `TokenKeys` | Base64 encoded 32 byte keys protecting rewritten transfer URLs. A list, so a key can be rotated without breaking transfers in flight: put the new key first and keep the old one until the token lifetime has elapsed. |
-| `TokenLifetime` | How long a rewritten transfer URL stays valid. |
+| `TokenLifetime` | How long a rewritten transfer URL stays valid, at most. When upstream says its own URL expires sooner, the rewritten one expires 30 seconds before it. |
 | `Store:MaxSize` | Byte budget, accepting decimal (`500GB`) and binary (`500Gi`) suffixes. |
 | `Store:LowWaterMark` | The fraction of the budget a sweep reduces the store to. |
 | `Store:StagingMaxAge` | How long an orphaned staging file from a crashed write survives. |

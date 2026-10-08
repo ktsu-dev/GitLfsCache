@@ -2,6 +2,7 @@
 
 namespace ktsu.GitLfsCache.Batch;
 
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using ktsu.GitLfsCache.Configuration;
 using ktsu.GitLfsCache.Tokens;
@@ -27,6 +28,9 @@ public sealed class BatchRewriter(
 	/// <summary>The action names this proxy terminates locally, in a fixed order.</summary>
 	private static readonly string[] RewrittenActions =
 		[TokenAction.Download, TokenAction.Upload, TokenAction.Verify];
+
+	/// <summary>How far ahead of upstream's own expiry a proxy token stops being valid.</summary>
+	internal static readonly TimeSpan UpstreamExpiryMargin = TimeSpan.FromSeconds(30);
 
 	/// <summary>
 	/// Rewrites a batch response, leaving the input untouched.
@@ -126,6 +130,10 @@ public sealed class BatchRewriter(
 			}
 		}
 
+		// The token carries upstream's href and header, so it can be good for no longer than they are.
+		DateTimeOffset now = timeProvider.GetUtcNow();
+		DateTimeOffset actionExpiresAt = ActionExpiry(action, now, expiresAt);
+
 		string token = codec.Encode(new HrefToken
 		{
 			Oid = oid,
@@ -134,7 +142,7 @@ public sealed class BatchRewriter(
 			Action = actionName,
 			UpstreamHref = upstreamHref,
 			UpstreamHeaders = headers,
-			ExpiresAt = expiresAt,
+			ExpiresAt = actionExpiresAt,
 		});
 
 		action["href"] = BuildProxyHref(actionName, oid, token, context);
@@ -143,10 +151,13 @@ public sealed class BatchRewriter(
 		// upstream's bearer token, which is most of the point of terminating the transfer locally.
 		action.Remove("header");
 
-		// An upstream expires_at would contradict this proxy's own token lifetime, so it is replaced
-		// rather than left to disagree.
+		// The advertised expiry is the token's, so the client re-batches before the proxy would have to
+		// use an upstream credential that has already expired. expires_in alone carries it, rather than
+		// leaving upstream's expires_at to disagree with it.
 		action.Remove("expires_at");
-		action["expires_in"] = expiresInSeconds;
+		action["expires_in"] = actionExpiresAt < expiresAt
+			? (int)Math.Max(0, Math.Floor((actionExpiresAt - now).TotalSeconds))
+			: expiresInSeconds;
 	}
 
 	private static string BuildProxyHref(
@@ -161,4 +172,50 @@ public sealed class BatchRewriter(
 
 		return $"{basePath}/{context.Upstream}/{context.RepositoryPath}/objects/{oid}{suffix}?t={token}";
 	}
+
+	/// <summary>
+	/// Works out when an action's proxy token expires: at the proxy's own lifetime, or earlier when
+	/// upstream says its href expires sooner.
+	/// </summary>
+	/// <remarks>
+	/// Upstream's expiry is brought forward by <see cref="UpstreamExpiryMargin"/>, so a transfer that
+	/// starts just inside the advertised window still reaches upstream before its credential lapses.
+	/// An <c>expires_at</c> or <c>expires_in</c> of the wrong type is treated as absent.
+	/// </remarks>
+	/// <param name="action">The upstream action.</param>
+	/// <param name="now">The current time.</param>
+	/// <param name="proxyExpiresAt">When the proxy's own token lifetime runs out.</param>
+	/// <returns>The earliest of the proxy expiry and upstream's, less the margin.</returns>
+	private static DateTimeOffset ActionExpiry(JsonObject action, DateTimeOffset now, DateTimeOffset proxyExpiresAt)
+	{
+		DateTimeOffset expiry = proxyExpiresAt;
+
+		// System.Text.Json reads an ISO 8601 string as a DateTimeOffset, which is the form the Git LFS
+		// specification gives expires_at.
+		if (action["expires_at"] is JsonValue expiresAtNode
+			&& expiresAtNode.GetValueKind() == JsonValueKind.String
+			&& expiresAtNode.TryGetValue(out DateTimeOffset upstreamExpiresAt))
+		{
+			expiry = Earliest(expiry, LessMargin(upstreamExpiresAt));
+		}
+
+		if (action["expires_in"] is JsonValue expiresInNode
+			&& expiresInNode.GetValueKind() == JsonValueKind.Number
+			&& expiresInNode.TryGetValue(out long expiresInSeconds))
+		{
+			// Clamped so an absurd value cannot overflow the date arithmetic; anything this far out is
+			// later than the proxy lifetime anyway.
+			expiry = Earliest(expiry, LessMargin(now.AddSeconds(Math.Clamp(expiresInSeconds, int.MinValue, int.MaxValue))));
+		}
+
+		return expiry;
+	}
+
+	private static DateTimeOffset LessMargin(DateTimeOffset upstreamExpiry) =>
+		upstreamExpiry - DateTimeOffset.MinValue > UpstreamExpiryMargin
+			? upstreamExpiry - UpstreamExpiryMargin
+			: DateTimeOffset.MinValue;
+
+	private static DateTimeOffset Earliest(DateTimeOffset first, DateTimeOffset second) =>
+		first <= second ? first : second;
 }

@@ -18,11 +18,17 @@ public class BatchRewriterTests
 
 	private static (BatchRewriter Rewriter, HrefTokenCodec Codec) Create()
 	{
+		(BatchRewriter rewriter, HrefTokenCodec codec, _) = CreateWithClock();
+		return (rewriter, codec);
+	}
+
+	private static (BatchRewriter Rewriter, HrefTokenCodec Codec, FakeTimeProvider Time) CreateWithClock()
+	{
 		GitLfsCacheOptions options = new() { TokenLifetime = TimeSpan.FromHours(1) };
 		options.TokenKeys.Add(Convert.ToBase64String(new byte[32]));
 		FakeTimeProvider time = new(Now);
 		HrefTokenCodec codec = new(new AesEncryptionProvider(), Options.Create(options), time);
-		return (new BatchRewriter(codec, Options.Create(options), time), codec);
+		return (new BatchRewriter(codec, Options.Create(options), time), codec, time);
 	}
 
 	private static BatchRewriteContext Context() => new()
@@ -75,7 +81,9 @@ public class BatchRewriterTests
 		Assert.AreEqual(TokenAction.Download, token.Action);
 		Assert.AreEqual("github", token.Upstream);
 		Assert.AreEqual(500L, token.Size);
-		Assert.AreEqual(Now.AddHours(1), token.ExpiresAt);
+
+		// The fixture's expires_at is exactly the proxy lifetime away, so upstream's, less the margin, wins.
+		Assert.AreEqual(Now.AddHours(1) - BatchRewriter.UpstreamExpiryMargin, token.ExpiresAt);
 	}
 
 	[TestMethod]
@@ -89,15 +97,88 @@ public class BatchRewriterTests
 		Assert.DoesNotContain("ado-secret-token", rewritten.ToJsonString());
 	}
 
+	/// <summary>A one-object download batch whose action carries <paramref name="expiry"/> after its href.</summary>
+	private static JsonNode DownloadBatch(string expiry) => JsonNode.Parse(
+		"""{"objects":[{"oid":"aa","size":1,"actions":{"download":{"href":"https://upstream.example/aa" """
+		+ expiry
+		+ "}}}]}")!;
+
 	[TestMethod]
-	public void Rewrite_SetsExpiresInFromTokenLifetimeAndDropsExpiresAt()
+	public void Rewrite_ActionWithNoUpstreamExpiry_KeepsTheTokenLifetime()
+	{
+		(BatchRewriter rewriter, HrefTokenCodec codec) = Create();
+
+		JsonObject action = FirstAction(rewriter.Rewrite(DownloadBatch(string.Empty), Context()), "download");
+
+		Assert.AreEqual(3600, action["expires_in"]!.GetValue<int>());
+		Assert.AreEqual(Now.AddHours(1), Decode(codec, action).ExpiresAt);
+	}
+
+	[TestMethod]
+	public void Rewrite_DropsExpiresAt()
 	{
 		(BatchRewriter rewriter, _) = Create();
 
 		JsonObject action = FirstAction(rewriter.Rewrite(Load("ado-download-batch.json"), Context()), "download");
 
-		Assert.AreEqual(3600, action["expires_in"]!.GetValue<int>());
 		Assert.IsFalse(action.ContainsKey("expires_at"));
+	}
+
+	[TestMethod]
+	[DataRow(",\"expires_in\":600", DisplayName = "expires_in")]
+	[DataRow(",\"expires_at\":\"2026-08-18T12:10:00Z\"", DisplayName = "expires_at")]
+	[DataRow(",\"expires_in\":600,\"expires_at\":\"2026-08-18T13:30:00Z\"", DisplayName = "expires_in sooner than expires_at")]
+	[DataRow(",\"expires_in\":5400,\"expires_at\":\"2026-08-18T12:10:00Z\"", DisplayName = "expires_at sooner than expires_in")]
+	public void Rewrite_UpstreamExpiresSooner_TokenAndExpiresInFollowUpstream(string expiry)
+	{
+		(BatchRewriter rewriter, HrefTokenCodec codec, FakeTimeProvider time) = CreateWithClock();
+		int expected = 600 - (int)BatchRewriter.UpstreamExpiryMargin.TotalSeconds;
+
+		JsonObject action = FirstAction(rewriter.Rewrite(DownloadBatch(expiry), Context()), "download");
+		string encoded = new Uri(action["href"]!.GetValue<string>()).Query.Replace("?t=", string.Empty, StringComparison.Ordinal);
+
+		Assert.AreEqual(expected, action["expires_in"]!.GetValue<int>());
+		Assert.IsFalse(action.ContainsKey("expires_at"));
+		Assert.AreEqual(Now.AddSeconds(expected), Decode(codec, action).ExpiresAt);
+
+		// Upstream's href is dead at 600 s, so the proxy token must already be refused by then.
+		time.Advance(TimeSpan.FromSeconds(600));
+		Assert.IsFalse(codec.TryDecode(encoded, out _, out _));
+	}
+
+	[TestMethod]
+	public void Rewrite_UpstreamExpiresLater_KeepsTheTokenLifetime()
+	{
+		(BatchRewriter rewriter, HrefTokenCodec codec) = Create();
+
+		JsonObject action = FirstAction(rewriter.Rewrite(DownloadBatch(",\"expires_in\":86400"), Context()), "download");
+
+		Assert.AreEqual(3600, action["expires_in"]!.GetValue<int>());
+		Assert.AreEqual(Now.AddHours(1), Decode(codec, action).ExpiresAt);
+	}
+
+	[TestMethod]
+	[DataRow(",\"expires_in\":\"600\"", DisplayName = "string expires_in")]
+	[DataRow(",\"expires_at\":600", DisplayName = "numeric expires_at")]
+	[DataRow(",\"expires_at\":\"not a date\"", DisplayName = "unparseable expires_at")]
+	[DataRow(",\"expires_in\":9223372036854775807", DisplayName = "huge expires_in")]
+	public void Rewrite_UnusableUpstreamExpiry_IsIgnored(string expiry)
+	{
+		(BatchRewriter rewriter, _) = Create();
+
+		JsonObject action = FirstAction(rewriter.Rewrite(DownloadBatch(expiry), Context()), "download");
+
+		Assert.AreEqual(3600, action["expires_in"]!.GetValue<int>());
+	}
+
+	[TestMethod]
+	public void Rewrite_UpstreamAlreadyExpired_AdvertisesZero()
+	{
+		(BatchRewriter rewriter, _) = Create();
+
+		JsonObject action = FirstAction(rewriter.Rewrite(DownloadBatch(",\"expires_in\":10"), Context()), "download");
+
+		Assert.AreEqual(0, action["expires_in"]!.GetValue<int>());
 	}
 
 	[TestMethod]
