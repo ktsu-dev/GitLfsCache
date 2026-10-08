@@ -122,6 +122,26 @@ public class ProxyFlowTests
 	}
 
 	[TestMethod]
+	[DataRow("<html><body>Sign in to continue</body></html>", "text/html")]
+	[DataRow("""{"objects":[{"oid":"aa","size":"123","actions":{"download":{"href":"https://upstream.example/x"}}}]}""", "application/vnd.git-lfs+json")]
+	[DataRow("""{"objects":[{"oid":"aa","size":1,"actions":{"download":{"href":"https://upstream.example/x","header":{"X-Count":1}}}}]}""", "application/vnd.git-lfs+json")]
+	public async Task Batch_UpstreamSuccessThatCannotBeUsed_IsABadGateway(string upstreamBody, string mediaType)
+	{
+		// A sign-in or SSO page served with 200, or a field of the wrong type, is upstream's failure.
+		// Answering 500 would point operators at the proxy instead.
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		fixture.Upstream.BatchSuccessBody = (upstreamBody, mediaType);
+		(byte[] content, string oid) = Object("behind a sign-in page");
+		using HttpClient client = fixture.Client;
+
+		using StringContent body = BatchRequest("download", oid, content.Length);
+
+		using HttpResponseMessage response = await client.PostAsync($"{LfsPath}/objects/batch", body);
+
+		Assert.AreEqual(HttpStatusCode.BadGateway, response.StatusCode);
+	}
+
+	[TestMethod]
 	public async Task Download_ColdThenWarm_FetchesUpstreamOnceAndServesFromTheStore()
 	{
 		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
