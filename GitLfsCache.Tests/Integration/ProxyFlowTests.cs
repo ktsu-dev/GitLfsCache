@@ -9,6 +9,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using ktsu.GitLfsCache.Observability;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 [TestClass]
@@ -330,6 +332,65 @@ public class ProxyFlowTests
 		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
 		CollectionAssert.AreEqual(content, fixture.Upstream.Uploaded[oid]);
 		Assert.IsTrue(fixture.Store.Exists("github", oid), "A pushed object should be cached for the next fetch.");
+	}
+
+	/// <summary>
+	/// Stands in for Kestrel's body size limit, which <see cref="Microsoft.AspNetCore.TestHost.TestServer"/> does not enforce.
+	/// </summary>
+	private sealed class BodySizeLimit : IHttpMaxRequestBodySizeFeature
+	{
+		public bool IsReadOnly => false;
+
+		public long? MaxRequestBodySize { get; set; } = 30_000_000;
+	}
+
+	[TestMethod]
+	public async Task Upload_LiftsTheServersRequestBodyLimit()
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		(byte[] content, string oid) = Object("pushed past the server's default body limit");
+		BodySizeLimit limit = new();
+
+		JsonNode batch = await PostBatchAsync(fixture, "upload", oid, content.Length);
+		Uri href = new(HrefOf(batch, "upload"));
+
+		HttpContext context = await fixture.Server.SendAsync(context =>
+		{
+			context.Features.Set<IHttpMaxRequestBodySizeFeature>(limit);
+			context.Request.Method = HttpMethods.Put;
+			context.Request.Path = href.AbsolutePath;
+			context.Request.QueryString = new QueryString(href.Query);
+			context.Request.Body = new MemoryStream(content);
+			context.Request.ContentLength = content.Length;
+		});
+
+		Assert.AreEqual(StatusCodes.Status200OK, context.Response.StatusCode);
+		Assert.IsNull(limit.MaxRequestBodySize, "An LFS object routinely exceeds Kestrel's 30,000,000-byte default.");
+		CollectionAssert.AreEqual(content, fixture.Upstream.Uploaded[oid]);
+	}
+
+	[TestMethod]
+	public async Task Batch_KeepsTheServersRequestBodyLimit()
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		(byte[] content, string oid) = Object("only the transfer route is unbounded");
+		BodySizeLimit limit = new();
+		using StringContent request = BatchRequest("upload", oid, content.Length);
+		byte[] body = await request.ReadAsByteArrayAsync();
+
+		HttpContext context = await fixture.Server.SendAsync(context =>
+		{
+			context.Features.Set<IHttpMaxRequestBodySizeFeature>(limit);
+			context.Request.Method = HttpMethods.Post;
+			context.Request.Path = $"{LfsPath}/objects/batch";
+			context.Request.Headers.Authorization = "Basic dXNlcjp0b2tlbg==";
+			context.Request.ContentType = "application/vnd.git-lfs+json";
+			context.Request.Body = new MemoryStream(body);
+			context.Request.ContentLength = body.Length;
+		});
+
+		Assert.AreEqual(StatusCodes.Status200OK, context.Response.StatusCode);
+		Assert.AreEqual(30_000_000, limit.MaxRequestBodySize);
 	}
 
 	/// <summary>
