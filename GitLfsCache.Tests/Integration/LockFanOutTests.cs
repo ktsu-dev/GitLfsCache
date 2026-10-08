@@ -58,6 +58,21 @@ public class LockFanOutTests
 	}
 
 	[TestMethod]
+	public async Task RefThatIsNotAnObject_IsRefusedWithoutCallingUpstream()
+	{
+		// The listing endpoint takes the ref as a refspec string, so flattening it here is an easy
+		// mistake for a client to make. It is a malformed request, not a proxy failure.
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+
+		using HttpResponseMessage response = await PostBatchAsync(
+			fixture,
+			"""{"operation":"lock","paths":["Content/A.uasset"],"ref":"refs/heads/main"}""");
+
+		Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+		Assert.AreEqual(0, fixture.Upstream.LockChangeRequests);
+	}
+
+	[TestMethod]
 	public async Task EveryCall_CarriesTheCallersOwnCredential()
 	{
 		// What keeps this a parallelizer rather than a lock authority: upstream decides each creation

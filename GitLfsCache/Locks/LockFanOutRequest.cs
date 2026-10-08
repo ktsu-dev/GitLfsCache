@@ -56,10 +56,15 @@ public sealed record LockFanOutRequest(
 			return false;
 		}
 
+		if (!TryReadRef(root["ref"], out string? refName))
+		{
+			return false;
+		}
+
 		request = new LockFanOutRequest(
 			operation,
 			targets,
-			JsonValues.String(root["ref"]?["name"]),
+			refName,
 			JsonValues.Bool(root["force"]) ?? false);
 
 		return true;
@@ -72,6 +77,32 @@ public sealed record LockFanOutRequest(
 			"unlock" => LockFanOutOperation.Unlock,
 			_ => LockFanOutOperation.Unknown,
 		};
+
+	/// <summary>
+	/// Reads the ref's name, treating an absent ref as none.
+	/// </summary>
+	/// <remarks>
+	/// A ref that is present but not an object (a client that flattened it to the ref name, as the
+	/// listing endpoint's <c>refspec</c> query takes it) refuses the whole body. Taking the lock with no
+	/// ref would not be the lock the client asked for, and indexing into a non-object throws.
+	/// </remarks>
+	private static bool TryReadRef(JsonNode? node, out string? name)
+	{
+		name = null;
+
+		if (node is null)
+		{
+			return true;
+		}
+
+		if (node is not JsonObject refObject)
+		{
+			return false;
+		}
+
+		name = JsonValues.String(refObject["name"]);
+		return true;
+	}
 
 	/// <summary>
 	/// Reads the paths, and for a release the ids as well.
