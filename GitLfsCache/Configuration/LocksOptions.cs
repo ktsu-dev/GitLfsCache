@@ -52,6 +52,17 @@ public sealed class LocksOptions
 	public int MaxSnapshotLocks { get; set; } = 100_000;
 
 	/// <summary>
+	/// Gets or sets the most lock snapshots held in memory at once.
+	/// </summary>
+	/// <remarks>
+	/// One snapshot is held per repository and ref a client has listed, and the ref comes from the
+	/// client, so without a ceiling the number of snapshots would grow with every branch ever asked
+	/// about. Snapshots older than <see cref="ListTtl"/> are dropped first, then the oldest of the
+	/// rest. Memory is bounded by this times <see cref="MaxSnapshotLocks"/>.
+	/// </remarks>
+	public int MaxSnapshots { get; set; } = 1000;
+
+	/// <summary>
 	/// Gets or sets how many lock calls may be in flight against one upstream at a time.
 	/// </summary>
 	/// <remarks>

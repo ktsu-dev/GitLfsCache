@@ -139,6 +139,7 @@ The flags are a convenience over the same settings and win over all three, so `-
 | `Locks:AdmissionTtl` | How long an upstream authorization is trusted before it is proven again. Must be at least `ListTtl`, and startup refuses otherwise. |
 | `Locks:RefreshTimeout` | How long a request waits for another request's listing walk before walking itself. |
 | `Locks:MaxSnapshotLocks` | Above this many locks a repository is relayed rather than cached, so one enormous repository cannot consume memory without bound. |
+| `Locks:MaxSnapshots` | The most lock listings held in memory at once, one per repository and ref a client has listed. Listings older than `ListTtl` are dropped first, then the oldest of the rest. |
 | `Locks:MaxFanOutConcurrency` | How many lock calls may be in flight against one upstream at a time, across every request in the process. The right value per forge has to be found by measurement. |
 | `Locks:MaxFanOutPaths` | The most paths one batched request may carry. Beyond this the request is refused rather than accepted and throttled part way through. |
 | `Locks:MaxFanOutRetries` | How many times a throttled lock call is retried before it is reported as failed. |
