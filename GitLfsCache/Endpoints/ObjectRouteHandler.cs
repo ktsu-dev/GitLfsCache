@@ -13,6 +13,7 @@ using ktsu.GitLfsCache.Storage;
 using ktsu.GitLfsCache.Tokens;
 using ktsu.GitLfsCache.Upstreams;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -207,6 +208,26 @@ internal sealed class ObjectRouteHandler(
 	}
 
 	/// <summary>
+	/// Removes the server's request body size limit for this request.
+	/// </summary>
+	/// <remarks>
+	/// LFS objects are routinely larger than Kestrel's default 30,000,000-byte limit, and a body the
+	/// server refuses part way through surfaces as a 500 from the upstream relay rather than a 413.
+	/// The limit is lifted here, in the library, so every host is covered, and only for an upload
+	/// whose token has already been checked, so batch and lock bodies keep the server's bound.
+	/// </remarks>
+	/// <param name="context">The request context.</param>
+	private static void LiftRequestBodyLimit(HttpContext context)
+	{
+		IHttpMaxRequestBodySizeFeature? limit = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+
+		if (limit is { IsReadOnly: false })
+		{
+			limit.MaxRequestBodySize = null;
+		}
+	}
+
+	/// <summary>
 	/// Sends an upload upstream, keeping a copy on the way through.
 	/// </summary>
 	/// <param name="context">The request context.</param>
@@ -222,6 +243,8 @@ internal sealed class ObjectRouteHandler(
 		{
 			return;
 		}
+
+		LiftRequestBodyLimit(context);
 
 		// Without a staging file the upload is still relayed, through a tee into nothing so the relayed
 		// byte count is kept. Failing the push because the cache cannot take a copy would make the
