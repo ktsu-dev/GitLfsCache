@@ -323,6 +323,83 @@ public class ProxyFlowTests
 		Assert.AreEqual("bytes=0-3", fixture.Upstream.Requests.Last().Range);
 	}
 
+	/// <summary>Stores an object through a whole download, then returns a fresh download href for it.</summary>
+	private static async Task<string> WarmAsync(ProxyFixture fixture, byte[] content, string oid)
+	{
+		fixture.Upstream.AddObject(oid, content);
+		JsonNode coldBatch = await PostBatchAsync(fixture, "download", oid, content.Length);
+		using HttpClient client = fixture.Client;
+		await client.GetByteArrayAsync(Relative(HrefOf(coldBatch, "download")));
+		Assert.IsTrue(fixture.Store.Exists("github", oid));
+
+		JsonNode warmBatch = await PostBatchAsync(fixture, "download", oid, content.Length);
+		return Relative(HrefOf(warmBatch, "download"));
+	}
+
+	[TestMethod]
+	[DataRow(10L, 19L, 10, 10, DisplayName = "Closed range")]
+	[DataRow(null, 5L, 31, 5, DisplayName = "Suffix range")]
+	[DataRow(30L, null, 30, 6, DisplayName = "Open range")]
+	public async Task Download_RangeRequestOnAHit_ReturnsPartialContentFromTheStore(
+		long? from,
+		long? to,
+		int expectedStart,
+		int expectedLength)
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		(byte[] content, string oid) = Object("0123456789abcdefghijklmnopqrstuvwxyz");
+		string href = await WarmAsync(fixture, content, oid);
+		using HttpClient client = fixture.Client;
+
+		using HttpRequestMessage request = new(HttpMethod.Get, href);
+		request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(from, to);
+
+		using HttpResponseMessage response = await client.SendAsync(request);
+
+		Assert.AreEqual(HttpStatusCode.PartialContent, response.StatusCode);
+		CollectionAssert.AreEqual(
+			content.Skip(expectedStart).Take(expectedLength).ToArray(),
+			await response.Content.ReadAsByteArrayAsync());
+		Assert.AreEqual(
+			$"bytes {expectedStart}-{expectedStart + expectedLength - 1}/{content.Length}",
+			response.Content.Headers.ContentRange?.ToString());
+		Assert.AreEqual(1, fixture.Upstream.FetchCount(oid), "A ranged hit must be served from the store");
+	}
+
+	[TestMethod]
+	public async Task Download_UnsatisfiableRangeOnAHit_Returns416()
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		(byte[] content, string oid) = Object("too short for that range");
+		string href = await WarmAsync(fixture, content, oid);
+		using HttpClient client = fixture.Client;
+
+		using HttpRequestMessage request = new(HttpMethod.Get, href);
+		request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(1000, 2000);
+
+		using HttpResponseMessage response = await client.SendAsync(request);
+
+		Assert.AreEqual(HttpStatusCode.RequestedRangeNotSatisfiable, response.StatusCode);
+		Assert.AreEqual($"bytes */{content.Length}", response.Content.Headers.ContentRange?.ToString());
+	}
+
+	[TestMethod]
+	public async Task Download_HitWithoutARange_ReturnsTheWholeObjectAndAdvertisesRanges()
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		(byte[] content, string oid) = Object("whole object please");
+		string href = await WarmAsync(fixture, content, oid);
+		using HttpClient client = fixture.Client;
+
+		using HttpResponseMessage response = await client.GetAsync(href);
+
+		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+		CollectionAssert.AreEqual(content, await response.Content.ReadAsByteArrayAsync());
+		Assert.AreEqual(content.Length, response.Content.Headers.ContentLength);
+		Assert.AreEqual("application/octet-stream", response.Content.Headers.ContentType?.MediaType);
+		CollectionAssert.Contains(response.Headers.AcceptRanges.ToList(), "bytes");
+	}
+
 	[TestMethod]
 	public async Task Download_ObjectUpstreamDoesNotHave_ReportsTheErrorPerObject()
 	{
