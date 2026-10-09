@@ -125,6 +125,8 @@ Layout, one tree per upstream key, with `ktsu.Semantics.Paths` types for the roo
 <root>/<upstream>/staging/<guid>.tmp
 ```
 
+`<upstream>` is the key itself when it is made only of ASCII letters, digits, `-` and `_`. Any other key, such as `gitlab.com`, has each UTF-8 byte outside that set written as `%XX` (`gitlab%2Ecom`), which is reversible, cannot collide with a plain name, and cannot reach outside the root.
+
 Staging sits on the same volume as the objects so publishing is an atomic rename. The two-level fan-out mirrors the git-lfs client's own layout and keeps directory sizes reasonable into the hundreds of thousands of objects.
 
 Namespacing per upstream duplicates bytes when two upstreams hold the same object, and content addressing means those bytes are identical. The duplication is accepted to bound the blast radius if the token codec is ever wrong. A single shared tree is recorded as a deferred option, not a configuration flag.
