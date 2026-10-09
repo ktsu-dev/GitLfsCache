@@ -9,6 +9,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using ktsu.GitLfsCache.Observability;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 [TestClass]
@@ -33,13 +35,14 @@ public class ProxyFlowTests
 		string operation,
 		string oid,
 		long size,
-		string? authorization = "Basic dXNlcjp0b2tlbg==")
+		string? authorization = "Basic dXNlcjp0b2tlbg==",
+		string lfsPath = LfsPath)
 	{
 		using HttpClient client = fixture.Client;
 
 		using StringContent body = BatchRequest(operation, oid, size);
 
-		using HttpRequestMessage request = new(HttpMethod.Post, $"{LfsPath}/objects/batch")
+		using HttpRequestMessage request = new(HttpMethod.Post, $"{lfsPath}/objects/batch")
 		{
 			Content = body,
 		};
@@ -121,6 +124,26 @@ public class ProxyFlowTests
 	}
 
 	[TestMethod]
+	[DataRow("<html><body>Sign in to continue</body></html>", "text/html")]
+	[DataRow("""{"objects":[{"oid":"aa","size":"123","actions":{"download":{"href":"https://upstream.example/x"}}}]}""", "application/vnd.git-lfs+json")]
+	[DataRow("""{"objects":[{"oid":"aa","size":1,"actions":{"download":{"href":"https://upstream.example/x","header":{"X-Count":1}}}}]}""", "application/vnd.git-lfs+json")]
+	public async Task Batch_UpstreamSuccessThatCannotBeUsed_IsABadGateway(string upstreamBody, string mediaType)
+	{
+		// A sign-in or SSO page served with 200, or a field of the wrong type, is upstream's failure.
+		// Answering 500 would point operators at the proxy instead.
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		fixture.Upstream.BatchSuccessBody = (upstreamBody, mediaType);
+		(byte[] content, string oid) = Object("behind a sign-in page");
+		using HttpClient client = fixture.Client;
+
+		using StringContent body = BatchRequest("download", oid, content.Length);
+
+		using HttpResponseMessage response = await client.PostAsync($"{LfsPath}/objects/batch", body);
+
+		Assert.AreEqual(HttpStatusCode.BadGateway, response.StatusCode);
+	}
+
+	[TestMethod]
 	public async Task Download_ColdThenWarm_FetchesUpstreamOnceAndServesFromTheStore()
 	{
 		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
@@ -142,6 +165,27 @@ public class ProxyFlowTests
 
 		CollectionAssert.AreEqual(content, secondBody);
 		Assert.AreEqual(1, fixture.Upstream.FetchCount(oid));
+	}
+
+	[TestMethod]
+	public async Task Download_UpstreamKeyCasingDiffers_SharesOneCacheUnderTheConfiguredKey()
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		(byte[] content, string oid) = Object("one object, two spellings");
+		fixture.Upstream.AddObject(oid, content);
+		using HttpClient client = fixture.Client;
+
+		// The fixture configures the upstream as "github"; this client addresses it as "GitHub".
+		JsonNode mixedCaseBatch = await PostBatchAsync(fixture, "download", oid, content.Length, lfsPath: "/GitHub/owner/repo.git/info/lfs");
+		string mixedCaseHref = HrefOf(mixedCaseBatch, "download");
+		CollectionAssert.AreEqual(content, await client.GetByteArrayAsync(Relative(mixedCaseHref)));
+
+		JsonNode configuredBatch = await PostBatchAsync(fixture, "download", oid, content.Length);
+		CollectionAssert.AreEqual(content, await client.GetByteArrayAsync(Relative(HrefOf(configuredBatch, "download"))));
+
+		Assert.AreEqual(1, fixture.Upstream.FetchCount(oid), "The second spelling should be served from the first spelling's cache");
+		Assert.StartsWith($"https://cache.example/github/owner/repo.git/info/lfs/objects/{oid}?t=", mixedCaseHref);
+		Assert.IsTrue(fixture.Store.Exists("github", oid));
 	}
 
 	[TestMethod]
@@ -279,6 +323,83 @@ public class ProxyFlowTests
 		Assert.AreEqual("bytes=0-3", fixture.Upstream.Requests.Last().Range);
 	}
 
+	/// <summary>Stores an object through a whole download, then returns a fresh download href for it.</summary>
+	private static async Task<string> WarmAsync(ProxyFixture fixture, byte[] content, string oid)
+	{
+		fixture.Upstream.AddObject(oid, content);
+		JsonNode coldBatch = await PostBatchAsync(fixture, "download", oid, content.Length);
+		using HttpClient client = fixture.Client;
+		await client.GetByteArrayAsync(Relative(HrefOf(coldBatch, "download")));
+		Assert.IsTrue(fixture.Store.Exists("github", oid));
+
+		JsonNode warmBatch = await PostBatchAsync(fixture, "download", oid, content.Length);
+		return Relative(HrefOf(warmBatch, "download"));
+	}
+
+	[TestMethod]
+	[DataRow(10L, 19L, 10, 10, DisplayName = "Closed range")]
+	[DataRow(null, 5L, 31, 5, DisplayName = "Suffix range")]
+	[DataRow(30L, null, 30, 6, DisplayName = "Open range")]
+	public async Task Download_RangeRequestOnAHit_ReturnsPartialContentFromTheStore(
+		long? from,
+		long? to,
+		int expectedStart,
+		int expectedLength)
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		(byte[] content, string oid) = Object("0123456789abcdefghijklmnopqrstuvwxyz");
+		string href = await WarmAsync(fixture, content, oid);
+		using HttpClient client = fixture.Client;
+
+		using HttpRequestMessage request = new(HttpMethod.Get, href);
+		request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(from, to);
+
+		using HttpResponseMessage response = await client.SendAsync(request);
+
+		Assert.AreEqual(HttpStatusCode.PartialContent, response.StatusCode);
+		CollectionAssert.AreEqual(
+			content.Skip(expectedStart).Take(expectedLength).ToArray(),
+			await response.Content.ReadAsByteArrayAsync());
+		Assert.AreEqual(
+			$"bytes {expectedStart}-{expectedStart + expectedLength - 1}/{content.Length}",
+			response.Content.Headers.ContentRange?.ToString());
+		Assert.AreEqual(1, fixture.Upstream.FetchCount(oid), "A ranged hit must be served from the store");
+	}
+
+	[TestMethod]
+	public async Task Download_UnsatisfiableRangeOnAHit_Returns416()
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		(byte[] content, string oid) = Object("too short for that range");
+		string href = await WarmAsync(fixture, content, oid);
+		using HttpClient client = fixture.Client;
+
+		using HttpRequestMessage request = new(HttpMethod.Get, href);
+		request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(1000, 2000);
+
+		using HttpResponseMessage response = await client.SendAsync(request);
+
+		Assert.AreEqual(HttpStatusCode.RequestedRangeNotSatisfiable, response.StatusCode);
+		Assert.AreEqual($"bytes */{content.Length}", response.Content.Headers.ContentRange?.ToString());
+	}
+
+	[TestMethod]
+	public async Task Download_HitWithoutARange_ReturnsTheWholeObjectAndAdvertisesRanges()
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		(byte[] content, string oid) = Object("whole object please");
+		string href = await WarmAsync(fixture, content, oid);
+		using HttpClient client = fixture.Client;
+
+		using HttpResponseMessage response = await client.GetAsync(href);
+
+		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+		CollectionAssert.AreEqual(content, await response.Content.ReadAsByteArrayAsync());
+		Assert.AreEqual(content.Length, response.Content.Headers.ContentLength);
+		Assert.AreEqual("application/octet-stream", response.Content.Headers.ContentType?.MediaType);
+		CollectionAssert.Contains(response.Headers.AcceptRanges.ToList(), "bytes");
+	}
+
 	[TestMethod]
 	public async Task Download_ObjectUpstreamDoesNotHave_ReportsTheErrorPerObject()
 	{
@@ -308,6 +429,97 @@ public class ProxyFlowTests
 		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
 		CollectionAssert.AreEqual(content, fixture.Upstream.Uploaded[oid]);
 		Assert.IsTrue(fixture.Store.Exists("github", oid), "A pushed object should be cached for the next fetch.");
+	}
+
+	[TestMethod]
+	public async Task DottedUpstreamKey_DownloadsAndUploadsAreStored()
+	{
+		const string dottedPath = "/gitlab.com/owner/repo.git/info/lfs";
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync(new(StringComparer.Ordinal)
+		{
+			["GitLfsCache:Upstreams:gitlab.com:BaseUrl"] = "https://upstream.example",
+			["GitLfsCache:Upstreams:gitlab.com:Repositories:0"] = "**",
+		});
+		using HttpClient client = fixture.Client;
+
+		(byte[] downloaded, string downloadOid) = Object("fetched through a dotted upstream");
+		fixture.Upstream.AddObject(downloadOid, downloaded);
+		JsonNode downloadBatch = await PostBatchAsync(fixture, "download", downloadOid, downloaded.Length, lfsPath: dottedPath);
+
+		using HttpResponseMessage download = await client.GetAsync(Relative(HrefOf(downloadBatch, "download")));
+
+		Assert.AreEqual(HttpStatusCode.OK, download.StatusCode);
+		CollectionAssert.AreEqual(downloaded, await download.Content.ReadAsByteArrayAsync());
+		Assert.IsTrue(fixture.Store.Exists("gitlab.com", downloadOid));
+
+		(byte[] uploaded, string uploadOid) = Object("pushed through a dotted upstream");
+		JsonNode uploadBatch = await PostBatchAsync(fixture, "upload", uploadOid, uploaded.Length, lfsPath: dottedPath);
+		using ByteArrayContent body = new(uploaded);
+
+		using HttpResponseMessage upload = await client.PutAsync(Relative(HrefOf(uploadBatch, "upload")), body);
+
+		Assert.AreEqual(HttpStatusCode.OK, upload.StatusCode);
+		CollectionAssert.AreEqual(uploaded, fixture.Upstream.Uploaded[uploadOid]);
+		Assert.IsTrue(fixture.Store.Exists("gitlab.com", uploadOid));
+	}
+
+	/// <summary>
+	/// Stands in for Kestrel's body size limit, which <see cref="Microsoft.AspNetCore.TestHost.TestServer"/> does not enforce.
+	/// </summary>
+	private sealed class BodySizeLimit : IHttpMaxRequestBodySizeFeature
+	{
+		public bool IsReadOnly => false;
+
+		public long? MaxRequestBodySize { get; set; } = 30_000_000;
+	}
+
+	[TestMethod]
+	public async Task Upload_LiftsTheServersRequestBodyLimit()
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		(byte[] content, string oid) = Object("pushed past the server's default body limit");
+		BodySizeLimit limit = new();
+
+		JsonNode batch = await PostBatchAsync(fixture, "upload", oid, content.Length);
+		Uri href = new(HrefOf(batch, "upload"));
+
+		HttpContext context = await fixture.Server.SendAsync(context =>
+		{
+			context.Features.Set<IHttpMaxRequestBodySizeFeature>(limit);
+			context.Request.Method = HttpMethods.Put;
+			context.Request.Path = href.AbsolutePath;
+			context.Request.QueryString = new QueryString(href.Query);
+			context.Request.Body = new MemoryStream(content);
+			context.Request.ContentLength = content.Length;
+		});
+
+		Assert.AreEqual(StatusCodes.Status200OK, context.Response.StatusCode);
+		Assert.IsNull(limit.MaxRequestBodySize, "An LFS object routinely exceeds Kestrel's 30,000,000-byte default.");
+		CollectionAssert.AreEqual(content, fixture.Upstream.Uploaded[oid]);
+	}
+
+	[TestMethod]
+	public async Task Batch_KeepsTheServersRequestBodyLimit()
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		(byte[] content, string oid) = Object("only the transfer route is unbounded");
+		BodySizeLimit limit = new();
+		using StringContent request = BatchRequest("upload", oid, content.Length);
+		byte[] body = await request.ReadAsByteArrayAsync();
+
+		HttpContext context = await fixture.Server.SendAsync(context =>
+		{
+			context.Features.Set<IHttpMaxRequestBodySizeFeature>(limit);
+			context.Request.Method = HttpMethods.Post;
+			context.Request.Path = $"{LfsPath}/objects/batch";
+			context.Request.Headers.Authorization = "Basic dXNlcjp0b2tlbg==";
+			context.Request.ContentType = "application/vnd.git-lfs+json";
+			context.Request.Body = new MemoryStream(body);
+			context.Request.ContentLength = body.Length;
+		});
+
+		Assert.AreEqual(StatusCodes.Status200OK, context.Response.StatusCode);
+		Assert.AreEqual(30_000_000, limit.MaxRequestBodySize);
 	}
 
 	/// <summary>
@@ -535,5 +747,74 @@ public class ProxyFlowTests
 
 		// This is the property the whole cache exists for: eight clients, one upstream transfer.
 		Assert.AreEqual(1, fixture.Upstream.FetchCount(oid));
+	}
+
+	[TestMethod]
+	public async Task AbortedLeader_HandsTheFetchToOneFollowerInsteadOfEveryFollowerFetching()
+	{
+		const int Followers = 5;
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		using CoalescedWaitCounter waits = new();
+		(byte[] content, string oid) = Object(new string('y', 200_000));
+		fixture.Upstream.AddObject(oid, content);
+		fixture.Upstream.ObjectGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		JsonNode batch = await PostBatchAsync(fixture, "download", oid, content.Length);
+		string href = Relative(HrefOf(batch, "download"));
+		using HttpClient client = fixture.Client;
+
+		// The leader's fetch is held at upstream, and the followers queue behind it.
+		using CancellationTokenSource leaderAbort = new();
+		Task<HttpResponseMessage> leader = client.GetAsync(href, leaderAbort.Token);
+		await WaitUntilAsync(() => fixture.Upstream.FetchCount(oid) == 1);
+		Task<byte[]>[] followers = [.. Enumerable.Range(0, Followers).Select(_ => client.GetByteArrayAsync(href))];
+		await WaitUntilAsync(() => waits.Count == Followers);
+
+		// The leader's client goes away mid-transfer, then upstream is allowed to answer.
+		await leaderAbort.CancelAsync();
+		await Assert.ThrowsAsync<OperationCanceledException>(() => leader);
+		fixture.Upstream.ObjectGate.SetResult();
+
+		foreach (byte[] body in await Task.WhenAll(followers))
+		{
+			CollectionAssert.AreEqual(content, body);
+		}
+
+		// The aborted fetch plus a single replacement, not one fetch per follower.
+		Assert.AreEqual(2, fixture.Upstream.FetchCount(oid));
+	}
+
+	private static async Task WaitUntilAsync(Func<bool> condition)
+	{
+		using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+		while (!condition())
+		{
+			await Task.Delay(10, timeout.Token);
+		}
+	}
+
+	/// <summary>Counts <c>gitlfscache.coalesced_waits</c> recorded while the listener is alive.</summary>
+	private sealed class CoalescedWaitCounter : IDisposable
+	{
+		private readonly MeterListener _listener = new();
+		private long _count;
+
+		public CoalescedWaitCounter()
+		{
+			_listener.InstrumentPublished = (instrument, listener) =>
+			{
+				if (instrument.Meter.Name == CacheMetrics.MeterName && instrument.Name == "gitlfscache.coalesced_waits")
+				{
+					listener.EnableMeasurementEvents(instrument);
+				}
+			};
+
+			_listener.SetMeasurementEventCallback<long>((_, value, _, _) => Interlocked.Add(ref _count, value));
+			_listener.Start();
+		}
+
+		public long Count => Interlocked.Read(ref _count);
+
+		public void Dispose() => _listener.Dispose();
 	}
 }

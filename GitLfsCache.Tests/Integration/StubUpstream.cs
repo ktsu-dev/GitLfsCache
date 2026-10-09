@@ -38,6 +38,12 @@ internal sealed class StubUpstream : HttpMessageHandler
 	/// <summary>Gets or sets the body the batch endpoint answers with when it is not successful.</summary>
 	public string BatchFailureBody { get; set; } = """{"message":"Repository not found"}""";
 
+	/// <summary>
+	/// Gets or sets a body the batch endpoint answers a successful call with verbatim, in place of the
+	/// one it would build, used to make upstream hand back a 2xx the proxy cannot use.
+	/// </summary>
+	public (string Body, string MediaType)? BatchSuccessBody { get; set; }
+
 	/// <summary>Gets or sets the status an object fetch answers with.</summary>
 	public HttpStatusCode ObjectStatus { get; set; } = HttpStatusCode.OK;
 
@@ -52,6 +58,12 @@ internal sealed class StubUpstream : HttpMessageHandler
 	/// upstream hand back bytes that do not match what was asked for.
 	/// </summary>
 	public byte[]? CorruptedContent { get; set; }
+
+	/// <summary>
+	/// Gets or sets a gate that object fetches wait on before answering, so a test can hold a transfer
+	/// in flight. A fetch whose request is cancelled while it waits is abandoned.
+	/// </summary>
+	public TaskCompletionSource? ObjectGate { get; set; }
 
 	/// <summary>Gets the bytes uploads delivered, keyed by object id.</summary>
 	public Dictionary<string, byte[]> Uploaded { get; } = new(StringComparer.Ordinal);
@@ -117,6 +129,11 @@ internal sealed class StubUpstream : HttpMessageHandler
 
 		if (path.Contains("/storage/", StringComparison.Ordinal))
 		{
+			if (ObjectGate is TaskCompletionSource gate)
+			{
+				await gate.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+			}
+
 			return BuildObjectResponse(path);
 		}
 
@@ -285,6 +302,14 @@ internal sealed class StubUpstream : HttpMessageHandler
 			return new HttpResponseMessage(BatchStatus)
 			{
 				Content = new StringContent(BatchFailureBody, Encoding.UTF8, "application/json"),
+			};
+		}
+
+		if (BatchSuccessBody is (string body, string mediaType))
+		{
+			return new HttpResponseMessage(HttpStatusCode.OK)
+			{
+				Content = new StringContent(body, Encoding.UTF8, mediaType),
 			};
 		}
 

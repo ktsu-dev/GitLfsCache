@@ -296,6 +296,19 @@ public class GitLfsCacheOptionsValidatorTests
 	}
 
 	[TestMethod]
+	public void Validate_NonPositiveMaxSnapshots_Fails()
+	{
+		GitLfsCacheOptions options = Valid();
+		options.Locks.MaxSnapshots = 0;
+
+		ValidateOptionsResult result = Validate(options);
+
+		Assert.IsFalse(result.Succeeded);
+		Assert.IsNotNull(result.FailureMessage);
+		Assert.Contains("Locks:MaxSnapshots", result.FailureMessage);
+	}
+
+	[TestMethod]
 	public void Validate_UpstreamWithNoRepositories_FailsNamingTheWildcard()
 	{
 		GitLfsCacheOptions options = Valid();

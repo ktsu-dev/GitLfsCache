@@ -33,6 +33,22 @@ public class UpstreamRegistryTests
 	}
 
 	[TestMethod]
+	public void TryResolve_KeyCasingDiffers_ReportsTheConfiguredKey()
+	{
+		Assert.IsTrue(Registry().TryResolve("GitHub", out string canonicalKey, out Uri? baseUrl));
+		Assert.AreEqual("github", canonicalKey);
+		Assert.AreEqual(new Uri("https://github.com"), baseUrl);
+	}
+
+	[TestMethod]
+	public void TryResolve_UnknownKey_ReportsTheKeyUnchanged()
+	{
+		Assert.IsFalse(Registry().TryResolve("GitLab", out string canonicalKey, out Uri? baseUrl));
+		Assert.AreEqual("GitLab", canonicalKey);
+		Assert.IsNull(baseUrl);
+	}
+
+	[TestMethod]
 	public void TryResolve_UnknownKey_ReturnsFalseAndNull()
 	{
 		Assert.IsFalse(Registry().TryResolve("gitlab", out Uri? baseUrl));

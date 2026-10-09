@@ -129,7 +129,7 @@ The flags are a convenience over the same settings and win over all three, so `-
 |---|---|
 | `PublicBaseUrl` | The URL clients actually use. Optional: when unset, each transfer URL is derived from the incoming request, which requires the ingress to send `X-Forwarded-Proto` and `X-Forwarded-Host`. Setting it explicitly is safer, because only the operator knows for certain what clients addressed. |
 | `TokenKeys` | Base64 encoded 32 byte keys protecting rewritten transfer URLs. A list, so a key can be rotated without breaking transfers in flight: put the new key first and keep the old one until the token lifetime has elapsed. |
-| `TokenLifetime` | How long a rewritten transfer URL stays valid. |
+| `TokenLifetime` | How long a rewritten transfer URL stays valid, at most. When upstream says its own URL expires sooner, the rewritten one expires 30 seconds before it. |
 | `Store:MaxSize` | Byte budget, accepting decimal (`500GB`) and binary (`500Gi`) suffixes. |
 | `Store:LowWaterMark` | The fraction of the budget a sweep reduces the store to. |
 | `Store:StagingMaxAge` | How long an orphaned staging file from a crashed write survives. |
@@ -139,6 +139,7 @@ The flags are a convenience over the same settings and win over all three, so `-
 | `Locks:AdmissionTtl` | How long an upstream authorization is trusted before it is proven again. Must be at least `ListTtl`, and startup refuses otherwise. |
 | `Locks:RefreshTimeout` | How long a request waits for another request's listing walk before walking itself. |
 | `Locks:MaxSnapshotLocks` | Above this many locks a repository is relayed rather than cached, so one enormous repository cannot consume memory without bound. |
+| `Locks:MaxSnapshots` | The most lock listings held in memory at once, one per repository and ref a client has listed. Listings older than `ListTtl` are dropped first, then the oldest of the rest. |
 | `Locks:MaxFanOutConcurrency` | How many lock calls may be in flight against one upstream at a time, across every request in the process. The right value per forge has to be found by measurement. |
 | `Locks:MaxFanOutPaths` | The most paths one batched request may carry. Beyond this the request is refused rather than accepted and throttled part way through. |
 | `Locks:MaxFanOutRetries` | How many times a throttled lock call is retried before it is reported as failed. |

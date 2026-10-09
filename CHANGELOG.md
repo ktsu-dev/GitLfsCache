@@ -1,6 +1,61 @@
-## v1.10.2-pre.1 (prerelease)
+## v1.12.3 (patch)
 
-No significant changes detected since v1.10.2-pre.1.
+Changes since v1.12.2:
+
+- Count follower attempts in a while loop so its condition and counter agree ([@Claude](https://github.com/Claude))
+- Merge remote-tracking branch 'origin/main' into fix/62-range-on-cache-hit ([@Claude](https://github.com/Claude))
+- Serve a Range request for a cached object as 206 instead of the whole object [patch] ([@Claude](https://github.com/Claude))
+
+## v1.12.2 (patch)
+
+Changes since v1.12.1:
+
+- Hand an aborted leader's fetch to one follower instead of all of them [patch] ([@Claude](https://github.com/Claude))
+- Store objects for an upstream key with a dot in it, such as gitlab.com [patch] ([@Claude](https://github.com/Claude))
+- Expire a batch action's proxy token no later than upstream's href [patch] ([@Claude](https://github.com/Claude))
+- Cover the --store override inside the command action ([@Claude](https://github.com/Claude))
+- Answer 502, not 500, when upstream's 2xx batch body cannot be used [patch] ([@Claude](https://github.com/Claude))
+- Resolve a relative --store path instead of aborting startup [patch] ([@Claude](https://github.com/Claude))
+- Refuse a locks/batch ref that is not an object with 400 instead of 500 [patch] ([@Claude](https://github.com/Claude))
+
+## v1.12.1 (patch)
+
+Changes since v1.12.0:
+
+- Lift the request body limit on the transfer route so large pushes go through [patch] ([@Claude](https://github.com/Claude))
+
+## v1.12.1-pre.1 (prerelease)
+
+Changes since v1.12.0:
+
+- Bump MSTest.Sdk from 4.4.1 to 4.5.1 ([@dependabot[bot]](https://github.com/dependabot[bot]))
+- Bump the ktsu group with 5 updates ([@dependabot[bot]](https://github.com/dependabot[bot]))
+
+## v1.12.0 (minor)
+
+Changes since v1.11.0:
+
+- Evict stale and excess lock snapshots [minor] ([@Claude](https://github.com/Claude))
+
+## v1.11.1-pre.1 (prerelease)
+
+Changes since v1.11.0:
+
+- Bump the ktsu group with 5 updates ([@dependabot[bot]](https://github.com/dependabot[bot]))
+
+## v1.11.0 (minor)
+
+Changes since v1.10.0:
+
+- Key the cache by the configured upstream spelling, not the request's [minor] ([@Claude](https://github.com/Claude))
+- Move CI onto the shared ci-shared.yml pipeline ([@Claude](https://github.com/Claude))
+
+## v1.10.2-pre.2 (prerelease)
+
+Changes since v1.10.2-pre.1:
+
+- Bump Polyfill from 11.4.1 to 11.4.2 ([@dependabot[bot]](https://github.com/dependabot[bot]))
+- Bump the ktsu group with 2 updates ([@dependabot[bot]](https://github.com/dependabot[bot]))
 
 ## v1.10.2-pre.1 (prerelease)
 

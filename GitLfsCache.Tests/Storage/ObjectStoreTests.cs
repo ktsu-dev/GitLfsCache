@@ -263,14 +263,62 @@ public class ObjectStoreTests
 	}
 
 	[TestMethod]
-	[DataRow("../escape")]
-	[DataRow("with/slash")]
-	[DataRow("")]
-	public void OpenStaging_MalformedUpstream_Throws(string upstream)
+	public void OpenStaging_EmptyUpstream_Throws()
 	{
 		(ObjectStore store, _, _) = Create();
 
-		Assert.ThrowsExactly<ArgumentException>(() => store.OpenStaging(upstream));
+		Assert.ThrowsExactly<ArgumentException>(() => store.OpenStaging(string.Empty));
+	}
+
+	[TestMethod]
+	[DataRow("gitlab.com")]
+	[DataRow("../escape")]
+	[DataRow("with/slash")]
+	[DataRow("with\\backslash")]
+	[DataRow("..")]
+	[DataRow("dé.example")]
+	public async Task AnyNonEmptyUpstream_IsStoredInOneDirectoryUnderTheRootAndReadBack(string upstream)
+	{
+		(ObjectStore store, MockFileSystem fileSystem, _) = Create();
+
+		string oid = await StoreAsync(store, upstream, $"stored under {upstream}");
+
+		Assert.IsTrue(store.Exists(upstream, oid));
+		using (Stream? read = store.OpenRead(upstream, oid, out _))
+		{
+			Assert.IsNotNull(read);
+		}
+
+		string directory = fileSystem.Directory.EnumerateDirectories(Root).Single();
+		Assert.AreEqual(Root, fileSystem.Path.GetDirectoryName(directory), "The key must not name a directory outside the root.");
+		Assert.AreEqual(ObjectStore.DirectoryNameFor(upstream), fileSystem.Path.GetFileName(directory));
+		Assert.AreEqual(upstream, store.Enumerate().Single().Upstream);
+	}
+
+	[TestMethod]
+	public void DirectoryNameFor_DottedKey_EscapesOnlyTheDot()
+	{
+		Assert.AreEqual("gitlab%2Ecom", ObjectStore.DirectoryNameFor("gitlab.com"));
+	}
+
+	[TestMethod]
+	[DataRow("github")]
+	[DataRow("My_Upstream-2")]
+	public void DirectoryNameFor_PlainKey_IsTheKeyItself(string upstream)
+	{
+		// The layout a store written before escaping existed already has, so it stays readable.
+		Assert.AreEqual(upstream, ObjectStore.DirectoryNameFor(upstream));
+	}
+
+	[TestMethod]
+	public void DirectoryNameFor_KeysThatLookAlikeOnceEscaped_StayDistinct()
+	{
+		string[] keys = ["gitlab.com", "gitlab%2Ecom", "gitlab%252Ecom", "gitlab_com", "gitlab-com"];
+
+		string[] names = [.. keys.Select(ObjectStore.DirectoryNameFor)];
+
+		Assert.HasCount(keys.Length, names.Distinct(StringComparer.Ordinal).ToList());
+		CollectionAssert.AreEqual(keys, names.Select(ObjectStore.UpstreamFor).ToArray());
 	}
 
 	[TestMethod]
