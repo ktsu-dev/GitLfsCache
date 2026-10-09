@@ -1,8 +1,7 @@
-## v1.12.3 (patch)
+## v1.12.4 (patch)
 
-Changes since v1.12.2:
+Changes since v1.12.3:
 
-- Count follower attempts in a while loop so its condition and counter agree ([@Claude](https://github.com/Claude))
-- Merge remote-tracking branch 'origin/main' into fix/62-range-on-cache-hit ([@Claude](https://github.com/Claude))
-- Serve a Range request for a cached object as 206 instead of the whole object [patch] ([@Claude](https://github.com/Claude))
+- Raise ktsu.Essentials to 2.10.7 and Testably interface to 10.4.0 ([@Claude](https://github.com/Claude))
+- Merge main into dependabot/nuget/Testably.Abstractions.Testing-7.1.1 ([@Claude](https://github.com/Claude))
 
