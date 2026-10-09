@@ -179,8 +179,11 @@ internal sealed class ObjectRouteHandler(
 			// A follower released without the object, because the leader's client went away or the
 			// leader stalled, queues again: one of the released followers becomes the new leader and
 			// the rest wait for it, rather than every one of them fetching the same object at once.
-			for (int attempt = 1; !ticket.IsLeader; attempt++)
+			int attempt = 0;
+
+			while (!ticket.IsLeader)
 			{
+				attempt++;
 				EndpointLog.WaitingForLeader(logger, token.Oid, route.Upstream);
 
 				bool published = await ticket
