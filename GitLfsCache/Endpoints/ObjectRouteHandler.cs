@@ -13,6 +13,7 @@ using ktsu.GitLfsCache.Storage;
 using ktsu.GitLfsCache.Tokens;
 using ktsu.GitLfsCache.Upstreams;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -47,6 +48,12 @@ internal sealed class ObjectRouteHandler(
 {
 	private const string OctetStream = "application/octet-stream";
 	private const string TokenQueryParameter = "t";
+
+	/// <summary>
+	/// How many leaders a follower waits for before it fetches for itself, so a run of failing or
+	/// stalled leaders cannot keep a request waiting indefinitely.
+	/// </summary>
+	private const int MaxFollowerAttempts = 3;
 
 	/// <summary>
 	/// Answers a Batch API call, rewriting the hrefs upstream returns to point back here.
@@ -160,48 +167,90 @@ internal sealed class ObjectRouteHandler(
 			return;
 		}
 
-		using IFetchTicket ticket = coalescer.Acquire(route.Upstream, token.Oid);
+		IFetchTicket ticket = coalescer.Acquire(route.Upstream, token.Oid);
 
-		if (!ticket.IsLeader)
+		try
 		{
-			metrics.RecordCoalescedWait(route.Upstream);
-			EndpointLog.WaitingForLeader(logger, token.Oid, route.Upstream);
-
-			bool published = await ticket
-				.WaitForLeaderAsync(options.Value.Fetch.FollowerTimeout, cancellationToken)
-				.ConfigureAwait(false);
-
-			long nowLength = 0;
-			Stream? nowCached = published
-				? store.OpenRead(route.Upstream, token.Oid, out nowLength)
-				: null;
-
-			if (nowCached is not null)
+			if (!ticket.IsLeader)
 			{
-				await using (nowCached.ConfigureAwait(false))
-				{
-					store.Touch(route.Upstream, token.Oid);
-					metrics.RecordHit(route.Upstream, nowLength);
-					await ServeFromStoreAsync(context, nowCached).ConfigureAwait(false);
-				}
-
-				return;
+				metrics.RecordCoalescedWait(route.Upstream);
 			}
 
-			EndpointLog.LeaderDidNotFinish(logger, token.Oid);
+			// A follower released without the object, because the leader's client went away or the
+			// leader stalled, queues again: one of the released followers becomes the new leader and
+			// the rest wait for it, rather than every one of them fetching the same object at once.
+			for (int attempt = 1; !ticket.IsLeader; attempt++)
+			{
+				EndpointLog.WaitingForLeader(logger, token.Oid, route.Upstream);
+
+				bool published = await ticket
+					.WaitForLeaderAsync(options.Value.Fetch.FollowerTimeout, cancellationToken)
+					.ConfigureAwait(false);
+
+				long nowLength = 0;
+				Stream? nowCached = published
+					? store.OpenRead(route.Upstream, token.Oid, out nowLength)
+					: null;
+
+				if (nowCached is not null)
+				{
+					await using (nowCached.ConfigureAwait(false))
+					{
+						store.Touch(route.Upstream, token.Oid);
+						metrics.RecordHit(route.Upstream, nowLength);
+						await ServeFromStoreAsync(context, nowCached).ConfigureAwait(false);
+					}
+
+					return;
+				}
+
+				EndpointLog.LeaderDidNotFinish(logger, token.Oid);
+
+				if (attempt >= MaxFollowerAttempts)
+				{
+					break;
+				}
+
+				ticket.Dispose();
+				ticket = coalescer.Acquire(route.Upstream, token.Oid);
+			}
+
+			bool stored = await StreamFromUpstreamAsync(
+				context,
+				route,
+				token,
+				range: null,
+				storeLocally: true,
+				cancellationToken).ConfigureAwait(false);
+
+			if (ticket.IsLeader)
+			{
+				ticket.Complete(stored);
+			}
 		}
-
-		bool stored = await StreamFromUpstreamAsync(
-			context,
-			route,
-			token,
-			range: null,
-			storeLocally: true,
-			cancellationToken).ConfigureAwait(false);
-
-		if (ticket.IsLeader)
+		finally
 		{
-			ticket.Complete(stored);
+			ticket.Dispose();
+		}
+	}
+
+	/// <summary>
+	/// Removes the server's request body size limit for this request.
+	/// </summary>
+	/// <remarks>
+	/// LFS objects are routinely larger than Kestrel's default 30,000,000-byte limit, and a body the
+	/// server refuses part way through surfaces as a 500 from the upstream relay rather than a 413.
+	/// The limit is lifted here, in the library, so every host is covered, and only for an upload
+	/// whose token has already been checked, so batch and lock bodies keep the server's bound.
+	/// </remarks>
+	/// <param name="context">The request context.</param>
+	private static void LiftRequestBodyLimit(HttpContext context)
+	{
+		IHttpMaxRequestBodySizeFeature? limit = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+
+		if (limit is { IsReadOnly: false })
+		{
+			limit.MaxRequestBodySize = null;
 		}
 	}
 
@@ -221,6 +270,8 @@ internal sealed class ObjectRouteHandler(
 		{
 			return;
 		}
+
+		LiftRequestBodyLimit(context);
 
 		// Without a staging file the upload is still relayed, through a tee into nothing so the relayed
 		// byte count is kept. Failing the push because the cache cannot take a copy would make the

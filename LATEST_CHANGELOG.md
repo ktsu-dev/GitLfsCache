@@ -1,6 +1,6 @@
-## v1.12.0 (minor)
+## v1.12.1 (patch)
 
-Changes since v1.11.0:
+Changes since v1.12.0:
 
-- Evict stale and excess lock snapshots [minor] ([@Claude](https://github.com/Claude))
+- Lift the request body limit on the transfer route so large pushes go through [patch] ([@Claude](https://github.com/Claude))
 

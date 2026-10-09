@@ -53,6 +53,12 @@ internal sealed class StubUpstream : HttpMessageHandler
 	/// </summary>
 	public byte[]? CorruptedContent { get; set; }
 
+	/// <summary>
+	/// Gets or sets a gate that object fetches wait on before answering, so a test can hold a transfer
+	/// in flight. A fetch whose request is cancelled while it waits is abandoned.
+	/// </summary>
+	public TaskCompletionSource? ObjectGate { get; set; }
+
 	/// <summary>Gets the bytes uploads delivered, keyed by object id.</summary>
 	public Dictionary<string, byte[]> Uploaded { get; } = new(StringComparer.Ordinal);
 
@@ -117,6 +123,11 @@ internal sealed class StubUpstream : HttpMessageHandler
 
 		if (path.Contains("/storage/", StringComparison.Ordinal))
 		{
+			if (ObjectGate is TaskCompletionSource gate)
+			{
+				await gate.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+			}
+
 			return BuildObjectResponse(path);
 		}
 
