@@ -103,8 +103,10 @@ public sealed class SingleFlight : ISingleFlight
 				throw new InvalidOperationException("Only the leader reports the outcome of a fetch.");
 			}
 
-			entry.Completion.TrySetResult(published);
+			// Retired first, so a follower that acquires again once released gets a fresh entry
+			// rather than this finished one.
 			owner.Retire(key, entry);
+			entry.Completion.TrySetResult(published);
 		}
 
 		public void Dispose()
@@ -122,9 +124,10 @@ public sealed class SingleFlight : ISingleFlight
 			}
 
 			// A leader that never reported an outcome releases its followers as a failure rather than
-			// leaving them waiting for a fetch that is no longer happening.
-			entry.Completion.TrySetResult(false);
+			// leaving them waiting for a fetch that is no longer happening. Retired first, so a released
+			// follower that acquires again can become the next leader.
 			owner.Retire(key, entry);
+			entry.Completion.TrySetResult(false);
 		}
 	}
 }
