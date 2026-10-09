@@ -44,7 +44,7 @@ Clients configure `lfs.url` as `https://cache.example/<upstream>/<repo path>/inf
 1. Resolve the upstream key to a base URL. An unknown key is a 404 before anything else happens.
 2. Forward the request body and the client's `Authorization` header to upstream unchanged.
 3. Relay any non-success response verbatim, including status and body, so the client sees upstream's real answer rather than a proxy interpretation.
-4. For each object in a success response, rewrite each action's `href` to a proxy URL and drop the action's `header` map, since the credentials it carries now live inside the token. Set `expires_in` from the token lifetime.
+4. For each object in a success response, rewrite each action's `href` to a proxy URL and drop the action's `header` map, since the credentials it carries now live inside the token. Set `expires_in` from the token lifetime, never later than upstream's own `expires_at` or `expires_in` for that action (less a 30-second margin), since the token carries upstream's credentials and is good for no longer than they are.
 5. Objects that upstream returned with an `error` and no actions pass through untouched.
 
 The store is never consulted during a Batch call, and a Batch call is never served from cache even when every object is already local. Short-circuiting it would move the authorization decision from upstream into the proxy, which is the one thing this design refuses to do.
