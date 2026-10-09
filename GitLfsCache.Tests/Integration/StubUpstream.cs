@@ -38,6 +38,12 @@ internal sealed class StubUpstream : HttpMessageHandler
 	/// <summary>Gets or sets the body the batch endpoint answers with when it is not successful.</summary>
 	public string BatchFailureBody { get; set; } = """{"message":"Repository not found"}""";
 
+	/// <summary>
+	/// Gets or sets a body the batch endpoint answers a successful call with verbatim, in place of the
+	/// one it would build, used to make upstream hand back a 2xx the proxy cannot use.
+	/// </summary>
+	public (string Body, string MediaType)? BatchSuccessBody { get; set; }
+
 	/// <summary>Gets or sets the status an object fetch answers with.</summary>
 	public HttpStatusCode ObjectStatus { get; set; } = HttpStatusCode.OK;
 
@@ -296,6 +302,14 @@ internal sealed class StubUpstream : HttpMessageHandler
 			return new HttpResponseMessage(BatchStatus)
 			{
 				Content = new StringContent(BatchFailureBody, Encoding.UTF8, "application/json"),
+			};
+		}
+
+		if (BatchSuccessBody is (string body, string mediaType))
+		{
+			return new HttpResponseMessage(HttpStatusCode.OK)
+			{
+				Content = new StringContent(body, Encoding.UTF8, mediaType),
 			};
 		}
 

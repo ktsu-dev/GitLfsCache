@@ -2,8 +2,10 @@
 
 namespace ktsu.GitLfsCache.Batch;
 
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using ktsu.GitLfsCache.Configuration;
+using ktsu.GitLfsCache.Locks;
 using ktsu.GitLfsCache.Tokens;
 using Microsoft.Extensions.Options;
 
@@ -34,6 +36,11 @@ public sealed class BatchRewriter(
 	/// <param name="upstreamResponse">The parsed upstream response.</param>
 	/// <param name="context">The request context.</param>
 	/// <returns>A new node tree with rewritten hrefs.</returns>
+	/// <exception cref="JsonException">
+	/// An object's <c>oid</c> or <c>size</c>, or an action's <c>href</c> or header value, has the wrong
+	/// JSON type. Such an entry can be neither rewritten nor safely passed through with upstream's
+	/// credentials still in it, so the whole response is refused.
+	/// </exception>
 	public JsonNode Rewrite(JsonNode upstreamResponse, BatchRewriteContext context)
 	{
 		Ensure.NotNull(upstreamResponse);
@@ -78,14 +85,14 @@ public sealed class BatchRewriter(
 			return;
 		}
 
-		string? oid = batchObject["oid"]?.GetValue<string>();
+		string? oid = ReadString(batchObject["oid"], "oid");
 
 		if (string.IsNullOrEmpty(oid))
 		{
 			return;
 		}
 
-		long size = batchObject["size"]?.GetValue<long>() ?? 0;
+		long size = ReadSize(batchObject["size"]);
 
 		foreach (string actionName in RewrittenActions)
 		{
@@ -106,7 +113,7 @@ public sealed class BatchRewriter(
 		DateTimeOffset expiresAt,
 		int expiresInSeconds)
 	{
-		string? upstreamHref = action["href"]?.GetValue<string>();
+		string? upstreamHref = ReadString(action["href"], "href");
 
 		if (string.IsNullOrEmpty(upstreamHref))
 		{
@@ -121,7 +128,7 @@ public sealed class BatchRewriter(
 			{
 				if (value is not null)
 				{
-					headers[name] = value.GetValue<string>();
+					headers[name] = ReadString(value, $"header {name}")!;
 				}
 			}
 		}
@@ -147,6 +154,32 @@ public sealed class BatchRewriter(
 		// rather than left to disagree.
 		action.Remove("expires_at");
 		action["expires_in"] = expiresInSeconds;
+	}
+
+	/// <summary>
+	/// Reads a string field, treating an absent one as null and any other type as malformed.
+	/// </summary>
+	private static string? ReadString(JsonNode? node, string field) =>
+		node is null
+			? null
+			: JsonValues.String(node) ?? throw new JsonException($"The batch response's {field} is not a string.");
+
+	/// <summary>
+	/// Reads an object's size, treating an absent one as zero and anything but an integer as malformed.
+	/// </summary>
+	private static long ReadSize(JsonNode? node)
+	{
+		if (node is null)
+		{
+			return 0;
+		}
+
+		if (node.GetValueKind() == JsonValueKind.Number && node is JsonValue value && value.TryGetValue(out long size))
+		{
+			return size;
+		}
+
+		throw new JsonException("The batch response's size is not an integer.");
 	}
 
 	private static string BuildProxyHref(

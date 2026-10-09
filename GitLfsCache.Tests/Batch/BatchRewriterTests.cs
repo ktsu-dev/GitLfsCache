@@ -2,6 +2,7 @@
 
 namespace ktsu.GitLfsCache.Tests.Batch;
 
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using ktsu.Essentials.EncryptionProviders.Aes;
 using ktsu.GitLfsCache.Batch;
@@ -206,6 +207,21 @@ public class BatchRewriterTests
 		JsonNode rewritten = rewriter.Rewrite(input, Context());
 
 		Assert.HasCount(0, FirstAction(rewritten, "download"));
+	}
+
+	[TestMethod]
+	[DataRow("""{"objects":[{"oid":1,"size":1,"actions":{"download":{"href":"https://upstream.example/x"}}}]}""")]
+	[DataRow("""{"objects":[{"oid":"aa","size":"123","actions":{"download":{"href":"https://upstream.example/x"}}}]}""")]
+	[DataRow("""{"objects":[{"oid":"aa","size":1.5,"actions":{"download":{"href":"https://upstream.example/x"}}}]}""")]
+	[DataRow("""{"objects":[{"oid":"aa","size":1,"actions":{"download":{"href":7}}}]}""")]
+	[DataRow("""{"objects":[{"oid":"aa","size":1,"actions":{"download":{"href":"https://upstream.example/x","header":{"X-Count":1}}}}]}""")]
+	public void Rewrite_FieldOfTheWrongType_IsRefusedAsMalformed(string json)
+	{
+		// Neither rewritable nor safe to pass through with upstream's credentials still in it.
+		(BatchRewriter rewriter, _) = Create();
+		JsonNode input = JsonNode.Parse(json)!;
+
+		Assert.ThrowsExactly<JsonException>(() => rewriter.Rewrite(input, Context()));
 	}
 
 	[TestMethod]

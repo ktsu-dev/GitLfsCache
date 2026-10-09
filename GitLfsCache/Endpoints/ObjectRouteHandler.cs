@@ -91,29 +91,41 @@ internal sealed class ObjectRouteHandler(
 		}
 
 		JsonNode? upstreamBody;
+		JsonNode rewritten;
 
 		Stream batchBody = await response.Content
 			.ReadAsStreamAsync(cancellationToken)
 			.ConfigureAwait(false);
 
-		await using (batchBody.ConfigureAwait(false))
+		// A success status with a body this proxy cannot use (a sign-in page served with 200, or a
+		// field of the wrong type) is upstream's failure, not the proxy's, so it is a 502 rather than
+		// an unhandled exception and a 500 that points operators at the wrong component.
+		try
 		{
-			upstreamBody = await JsonNode.ParseAsync(batchBody, cancellationToken: cancellationToken)
-				.ConfigureAwait(false);
-		}
+			await using (batchBody.ConfigureAwait(false))
+			{
+				upstreamBody = await JsonNode.ParseAsync(batchBody, cancellationToken: cancellationToken)
+					.ConfigureAwait(false);
+			}
 
-		if (upstreamBody is null)
+			if (upstreamBody is null)
+			{
+				context.Response.StatusCode = StatusCodes.Status502BadGateway;
+				return;
+			}
+
+			rewritten = rewriter.Rewrite(upstreamBody, new BatchRewriteContext
+			{
+				Upstream = route.Upstream,
+				RepositoryPath = route.RepositoryPath,
+				PublicBaseUrl = publicUrls.Resolve(context.Request),
+			});
+		}
+		catch (System.Text.Json.JsonException)
 		{
 			context.Response.StatusCode = StatusCodes.Status502BadGateway;
 			return;
 		}
-
-		JsonNode rewritten = rewriter.Rewrite(upstreamBody, new BatchRewriteContext
-		{
-			Upstream = route.Upstream,
-			RepositoryPath = route.RepositoryPath,
-			PublicBaseUrl = publicUrls.Resolve(context.Request),
-		});
 
 		context.Response.StatusCode = StatusCodes.Status200OK;
 		context.Response.ContentType = UpstreamRequests.LfsMediaType;
