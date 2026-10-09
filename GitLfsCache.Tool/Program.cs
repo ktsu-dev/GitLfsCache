@@ -29,7 +29,7 @@ internal static class Program
 	/// <summary>The configuration key the <c>--token-key</c> flag overrides.</summary>
 	private const string TokenKeyKey = "GitLfsCache:TokenKeys:0";
 
-	private static async Task<int> Main(string[] args)
+	internal static async Task<int> Main(string[] args)
 	{
 		Option<int?> port = new("--port", "-p")
 		{
@@ -110,7 +110,7 @@ internal static class Program
 
 			if (parseResult.GetValue(store) is string storeRoot)
 			{
-				overrides[StoreRootKey] = storeRoot;
+				overrides[StoreRootKey] = ResolveStoreRoot(storeRoot);
 			}
 
 			if (parseResult.GetValue(maxSize) is string budget)
@@ -284,6 +284,19 @@ internal static class Program
 
 		return true;
 	}
+
+	/// <summary>
+	/// Resolves the <c>--store</c> flag against the working directory.
+	/// </summary>
+	/// <remarks>
+	/// The options validator requires a fully qualified root, which keeps configuration files and
+	/// environment variables strict for container deployments. A relative directory is what someone
+	/// running the tool locally types, though, so the flag resolves it the way <c>--config</c> does
+	/// rather than letting startup fail with a validation stack trace.
+	/// </remarks>
+	/// <param name="storeRoot">The directory as given on the command line.</param>
+	/// <returns>The fully qualified directory.</returns>
+	internal static string ResolveStoreRoot(string storeRoot) => Path.GetFullPath(storeRoot);
 
 	/// <summary>
 	/// Groups every <c>--allow</c> flag by the upstream it names.
