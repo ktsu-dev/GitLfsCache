@@ -41,6 +41,16 @@ public static class LfsRouteParser
 			return false;
 		}
 
+		// A backslash is refused for the same reason as the dot segments below. Uri treats '\' as '/'
+		// in an http or https URL before it removes dot segments, so "owner\..\..\other" contains
+		// no dot segment when split on '/' here, yet climbs above the base URL's prefix once Uri builds
+		// it. Kestrel passes both a raw '\' and an encoded %5C through to Request.Path as a literal
+		// backslash. No git or forge repository path contains one.
+		if (path.Contains('\\', StringComparison.Ordinal))
+		{
+			return false;
+		}
+
 		string[] segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
 		if (segments.Length == 0)

@@ -47,6 +47,17 @@ public class RepositoryAllowListTests
 	}
 
 	[TestMethod]
+	public void IsAllowed_BackslashClimbingOutOfThePrefix_IsRefused()
+	{
+		// Uri reads "studio\..\other" as a climb out of studio, so matching it as text would let a
+		// repository outside the pattern through.
+		RepositoryAllowList allowList = AllowList("studio/**");
+
+		Assert.IsFalse(allowList.IsAllowed("github", @"studio\..\other/game.git/info/lfs/objects/batch"));
+		Assert.IsFalse(allowList.IsAllowed("github", @"studio/game.git\info/lfs/objects/batch"));
+	}
+
+	[TestMethod]
 	public void IsAllowed_SingleStar_DoesNotCrossASegment()
 	{
 		// The documented reason a repository pattern normally ends in ** rather than *: a single star

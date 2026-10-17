@@ -226,6 +226,22 @@ public class UpstreamRequestsTests
 	}
 
 	[TestMethod]
+	[DataRow(@"myproject\..\..\otherorg/proj/_git/repo/info/lfs/locks")]
+	[DataRow("myproject/../../otherorg/proj/_git/repo/info/lfs/locks")]
+	public void BuildRelayRequest_PathEscapingTheBasePath_Throws(string path)
+	{
+		// The parser refuses these first. This is the second line: if one ever reaches the builder,
+		// no request outside the configured prefix is built.
+		Assert.ThrowsExactly<ArgumentException>(() => UpstreamRequests.BuildRelayRequest(
+			new Uri("https://dev.azure.com/myorg"),
+			"GET",
+			path,
+			string.Empty,
+			Body(),
+			[]));
+	}
+
+	[TestMethod]
 	public void BuildRelayRequest_GetHasNoBody()
 	{
 		using HttpRequestMessage request = UpstreamRequests.BuildRelayRequest(
