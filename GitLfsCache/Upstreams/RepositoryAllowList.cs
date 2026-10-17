@@ -53,6 +53,13 @@ public sealed class RepositoryAllowList(IOptions<GitLfsCacheOptions> options) : 
 			return false;
 		}
 
+		// Uri reads a backslash as a separator, so "studio\..\other" names a repository outside
+		// studio/** even though the pattern matches it as text. No repository path contains one.
+		if (path.Contains('\\', StringComparison.Ordinal))
+		{
+			return false;
+		}
+
 		string candidate = path.Trim('/');
 
 		return patterns.Any(pattern => pattern.IsMatch(candidate));

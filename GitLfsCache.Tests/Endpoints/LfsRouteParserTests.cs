@@ -226,4 +226,17 @@ public class LfsRouteParserTests
 		Assert.IsFalse(LfsRouteParser.TryParse(path, out LfsRoute? route), $"Parsed '{path}'.");
 		Assert.IsNull(route);
 	}
+
+	[TestMethod]
+	[DataRow(@"/github/owner\..\..\other/repo.git/info/lfs/objects/batch")]
+	[DataRow(@"/github/owner\..\..\other/repo.git/info/lfs/locks")]
+	[DataRow(@"/github/owner\repo.git/info/lfs/objects/batch")]
+	[DataRow(@"/github\..\other/repo.git/info/lfs/objects/batch")]
+	public void TryParse_Backslash_IsRefused(string path)
+	{
+		// Uri treats a backslash as a slash before removing dot segments, so splitting on '/' alone
+		// would see no dot segment here while the joined upstream URL still climbs above the prefix.
+		Assert.IsFalse(LfsRouteParser.TryParse(path, out LfsRoute? route), $"Parsed '{path}'.");
+		Assert.IsNull(route);
+	}
 }

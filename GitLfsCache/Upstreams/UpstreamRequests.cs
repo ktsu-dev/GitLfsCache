@@ -367,7 +367,25 @@ public static class UpstreamRequests
 	/// <remarks>
 	/// <c>new Uri(baseUrl, path)</c> is wrong here: it discards the base URL's own path, so an
 	/// upstream configured as <c>https://dev.azure.com/org</c> would lose the organization segment.
+	/// <para>
+	/// The result is checked to still sit under the base URL's path. The route parser refuses the dot
+	/// segments and backslashes that could climb above it, so this only fires if a path gets past the
+	/// parser some other way, and then the request is refused rather than sent.
+	/// </para>
 	/// </remarks>
-	private static Uri Combine(Uri upstreamBase, string path) =>
-		new($"{upstreamBase.ToString().TrimEnd('/')}/{path.TrimStart('/')}");
+	/// <exception cref="ArgumentException">The joined URL escapes the base URL's path.</exception>
+	private static Uri Combine(Uri upstreamBase, string path)
+	{
+		Uri combined = new($"{upstreamBase.ToString().TrimEnd('/')}/{path.TrimStart('/')}");
+		string prefix = $"{upstreamBase.AbsolutePath.TrimEnd('/')}/";
+
+		if (!combined.AbsolutePath.StartsWith(prefix, StringComparison.Ordinal))
+		{
+			throw new ArgumentException(
+				$"The path escapes the upstream base URL's path '{upstreamBase.AbsolutePath}'.",
+				nameof(path));
+		}
+
+		return combined;
+	}
 }
