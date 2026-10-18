@@ -1,9 +1,6 @@
-## v1.12.5-pre.2 (prerelease)
+## v1.12.5 (patch)
 
-Changes since v1.12.5-pre.1:
+Changes since v1.12.4:
 
-- Bump Polyfill from 11.4.4 to 11.4.5 (dependabot[bot])
-- Bump the system group with 1 update (dependabot[bot])
-- Bump the microsoft group with 2 updates (dependabot[bot])
-- Bump the ktsu group with 2 updates (dependabot[bot])
+- Refuse a backslash in the request path so it cannot escape the upstream prefix [patch] (Claude)
 
