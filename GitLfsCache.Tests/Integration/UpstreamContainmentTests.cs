@@ -3,6 +3,7 @@
 namespace ktsu.GitLfsCache.Tests.Integration;
 
 using System.Text;
+using Microsoft.AspNetCore.Http;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 /// <summary>
@@ -36,13 +37,20 @@ public class UpstreamContainmentTests
 		["GitLfsCache:Upstreams:github:BaseUrl"] = "https://upstream.example/myorg",
 	};
 
-	private static async Task SendAsync(
+	private static Task<HttpContext> SendAsync(
 		ProxyFixture fixture,
 		string method,
 		string path,
+		string? body = null) =>
+		SendAsync(fixture, method, new PathString(path), body);
+
+	private static async Task<HttpContext> SendAsync(
+		ProxyFixture fixture,
+		string method,
+		PathString path,
 		string? body = null)
 	{
-		await fixture.Server.SendAsync(context =>
+		return await fixture.Server.SendAsync(context =>
 		{
 			context.Request.Method = method;
 			context.Request.Path = path;
@@ -112,5 +120,42 @@ public class UpstreamContainmentTests
 		Assert.AreEqual(
 			"/myorg/owner/repo.git/info/lfs/objects/batch",
 			fixture.Upstream.Requests[0].Path);
+	}
+
+	/// <summary>
+	/// A raw backslash, and %5C decoded the way Kestrel decodes it into <c>Request.Path</c>, on each
+	/// route kind that builds an upstream URL. <see cref="Uri"/> reads a backslash as a slash before
+	/// removing dot segments, so each of these would otherwise reach <c>/otherorg/...</c>.
+	/// </summary>
+	[TestMethod]
+	[DataRow("POST", @"/github/myproject\..\..\otherorg/repo/info/lfs/objects/batch", true)]
+	[DataRow("GET", @"/github/myproject\..\..\otherorg/repo/info/lfs/locks", false)]
+	[DataRow("GET", @"/github/myproject\..\..\otherorg/repo/info/lfs/somewhere", false)]
+	public async Task Backslash_IsRefusedWithoutAnUpstreamRequest(string method, string path, bool batch)
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync(PrefixedUpstream());
+
+		HttpContext context = await SendAsync(fixture, method, path, batch ? EmptyBatch : null);
+
+		Assert.AreEqual(StatusCodes.Status404NotFound, context.Response.StatusCode);
+		Assert.IsEmpty(fixture.Upstream.Requests);
+	}
+
+	[TestMethod]
+	[DataRow("POST", "/github/myproject%5C..%5C..%5Cotherorg/repo/info/lfs/objects/batch", true)]
+	[DataRow("GET", "/github/myproject%5C..%5C..%5Cotherorg/repo/info/lfs/locks", false)]
+	[DataRow("GET", "/github/myproject%5C..%5C..%5Cotherorg/repo/info/lfs/somewhere", false)]
+	public async Task EncodedBackslash_IsRefusedWithoutAnUpstreamRequest(string method, string path, bool batch)
+	{
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync(PrefixedUpstream());
+
+		HttpContext context = await SendAsync(
+			fixture,
+			method,
+			PathString.FromUriComponent(path),
+			batch ? EmptyBatch : null);
+
+		Assert.AreEqual(StatusCodes.Status404NotFound, context.Response.StatusCode);
+		Assert.IsEmpty(fixture.Upstream.Requests);
 	}
 }
