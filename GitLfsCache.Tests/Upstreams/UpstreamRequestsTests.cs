@@ -218,6 +218,7 @@ public class UpstreamRequestsTests
 			"owner/repo.git/info/lfs/locks",
 			"?refspec=main",
 			Body(),
+			null,
 			[]);
 
 		Assert.AreEqual(
@@ -238,6 +239,7 @@ public class UpstreamRequestsTests
 			path,
 			string.Empty,
 			Body(),
+			null,
 			[]));
 	}
 
@@ -250,6 +252,7 @@ public class UpstreamRequestsTests
 			"path",
 			string.Empty,
 			Body(),
+			null,
 			[]);
 
 		Assert.IsNull(request.Content);
@@ -264,6 +267,7 @@ public class UpstreamRequestsTests
 			"path",
 			string.Empty,
 			Body("{}"),
+			null,
 			[]);
 
 		Assert.IsNotNull(request.Content);
@@ -287,6 +291,7 @@ public class UpstreamRequestsTests
 			"path",
 			string.Empty,
 			Body(),
+			null,
 			headers);
 
 		Assert.AreEqual("Basic abc", request.Headers.GetValues("Authorization").Single());

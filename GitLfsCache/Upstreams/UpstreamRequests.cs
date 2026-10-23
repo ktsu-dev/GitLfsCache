@@ -286,6 +286,7 @@ public static class UpstreamRequests
 	/// <param name="path">The path after the upstream key, with no leading slash.</param>
 	/// <param name="query">The client's query string, including the leading question mark, or empty.</param>
 	/// <param name="body">The client's body.</param>
+	/// <param name="contentLength">The length the client sent the body with, or null when it sent none.</param>
 	/// <param name="headers">The client's headers, filtered of hop-by-hop entries.</param>
 	/// <returns>The request to send upstream.</returns>
 	public static HttpRequestMessage BuildRelayRequest(
@@ -294,6 +295,7 @@ public static class UpstreamRequests
 		string path,
 		string query,
 		Stream body,
+		long? contentLength,
 		IEnumerable<KeyValuePair<string, IEnumerable<string>>> headers)
 	{
 		Ensure.NotNull(upstreamBase);
@@ -308,7 +310,11 @@ public static class UpstreamRequests
 		if (!string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
 			&& !string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase))
 		{
+			// Content-Length is dropped with the other hop headers because a streamed body cannot be
+			// trusted to match it, so the length the client declared is carried here instead. Without it
+			// the body goes upstream chunked, and Azure DevOps reads a chunked batch as empty.
 			request.Content = new StreamContent(body);
+			request.Content.Headers.ContentLength = contentLength;
 		}
 
 		foreach ((string name, IEnumerable<string> values) in headers)

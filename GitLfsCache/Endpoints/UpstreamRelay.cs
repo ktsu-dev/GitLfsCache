@@ -47,6 +47,7 @@ internal sealed class UpstreamRelay(IUpstreamClient upstreamClient, ILogger<Upst
 			route.RelayPath,
 			context.Request.QueryString.Value ?? string.Empty,
 			context.Request.Body,
+			context.Request.ContentLength,
 			headers);
 
 		using HttpResponseMessage response = await upstreamClient

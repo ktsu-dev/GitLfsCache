@@ -91,6 +91,9 @@ internal sealed class StubUpstream : HttpMessageHandler
 		CancellationToken cancellationToken)
 	{
 		string path = request.RequestUri!.AbsolutePath;
+
+		// Read before the body, because buffering the content lets it compute a length it was never sent with.
+		long? contentLength = request.Content?.Headers.ContentLength;
 		string? body = request.Content is null
 			? null
 			: await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -104,7 +107,8 @@ internal sealed class StubUpstream : HttpMessageHandler
 					? string.Join(",", authorization)
 					: null,
 				request.Headers.Range?.ToString(),
-				request.RequestUri!.Query));
+				request.RequestUri!.Query,
+				contentLength));
 		}
 
 		if (path.EndsWith("/unlock", StringComparison.Ordinal))
@@ -227,6 +231,9 @@ internal sealed class StubUpstream : HttpMessageHandler
 	/// <summary>Gets the lock paths this upstream reports, in order.</summary>
 	public List<string> Locks { get; } = [];
 
+	/// <summary>Gets or sets the <c>locked_at</c> value every listed lock carries, or null for none.</summary>
+	public string? LockedAt { get; set; }
+
 	/// <summary>Gets or sets how many locks the listing returns per page.</summary>
 	public int LocksPageSize { get; set; } = 100;
 
@@ -279,6 +286,11 @@ internal sealed class StubUpstream : HttpMessageHandler
 				["path"] = page[index],
 				["owner"] = new JsonObject { ["name"] = "someone" },
 			});
+
+			if (LockedAt is string lockedAt)
+			{
+				locks[^1]!["locked_at"] = lockedAt;
+			}
 		}
 
 		JsonObject body = new() { ["locks"] = locks };
@@ -458,5 +470,6 @@ internal sealed class StubUpstream : HttpMessageHandler
 	/// <param name="Authorization">The Authorization header, or null when absent.</param>
 	/// <param name="Range">The Range header, or null when absent.</param>
 	/// <param name="Query">The query string, including its leading <c>?</c>, or empty when absent.</param>
-	internal sealed record RecordedRequest(string Method, string Path, string? Authorization, string? Range, string Query);
+	/// <param name="ContentLength">The Content-Length the body was sent with, or null when it was sent without one.</param>
+	internal sealed record RecordedRequest(string Method, string Path, string? Authorization, string? Range, string Query, long? ContentLength);
 }

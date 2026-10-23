@@ -42,6 +42,26 @@ public class LockListCachingTests
 		[.. listing["locks"]!.AsArray().Select(entry => entry!["path"]!.GetValue<string>())];
 
 	[TestMethod]
+	public async Task Listing_KeepsAPlusSignInALockTimeUnescaped()
+	{
+		// Azure DevOps writes a new lock's time with a +00:00 offset. git-lfs parses the raw JSON bytes
+		// of locked_at without unescaping them, so a + written in place of the plus sign fails
+		// every listing until the lock is gone.
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		fixture.Upstream.LockedAt = "2026-10-23T00:03:08.32+00:00";
+		fixture.Upstream.Locks.Add("Content/a.uasset");
+
+		using HttpClient client = fixture.Client;
+		using HttpRequestMessage request = new(HttpMethod.Get, $"{LfsPath}/locks");
+		request.Headers.TryAddWithoutValidation("Authorization", Credential);
+		using HttpResponseMessage response = await client.SendAsync(request);
+		string body = await response.Content.ReadAsStringAsync();
+
+		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+		Assert.Contains("\"2026-10-23T00:03:08.32+00:00\"", body);
+	}
+
+	[TestMethod]
 	public async Task ManyClients_ProduceOneUpstreamWalk()
 	{
 		// The headline claim of the whole subsystem: lock traffic upstream stops scaling with the

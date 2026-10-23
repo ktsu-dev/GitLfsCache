@@ -130,7 +130,7 @@ internal sealed class ObjectRouteHandler(
 		context.Response.StatusCode = StatusCodes.Status200OK;
 		context.Response.ContentType = UpstreamRequests.LfsMediaType;
 		await context.Response
-			.WriteAsync(rewritten.ToJsonString(), cancellationToken)
+			.WriteAsync(ResponseJson.Write(rewritten), cancellationToken)
 			.ConfigureAwait(false);
 	}
 
