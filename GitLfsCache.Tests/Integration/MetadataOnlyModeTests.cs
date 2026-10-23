@@ -68,6 +68,22 @@ public class MetadataOnlyModeTests
 	}
 
 	[TestMethod]
+	public async Task Batch_IsRelayedWithTheClientsContentLength()
+	{
+		// Azure DevOps reads a chunked batch body as empty and answers 400 "Contents cannot be empty",
+		// so a relayed batch that drops the length fails every upload and download.
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync(MetadataOnly());
+		(byte[] content, string oid) = Object("sized relay");
+		fixture.Upstream.AddObject(oid, content);
+
+		await PostBatchAsync(fixture, oid, content.Length);
+
+		StubUpstream.RecordedRequest batch = fixture.Upstream.Requests.Single(request => request.Path.EndsWith("/objects/batch", StringComparison.Ordinal));
+		Assert.IsNotNull(batch.ContentLength);
+		Assert.IsGreaterThan(0L, batch.ContentLength.Value);
+	}
+
+	[TestMethod]
 	public async Task Batch_KeepsTheUpstreamActionHeaders()
 	{
 		// In caching mode those credentials move into the rewritten token and the header map is

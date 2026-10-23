@@ -145,7 +145,7 @@ internal sealed class LockRouteHandler(
 		context.Response.ContentType = UpstreamRequests.LfsMediaType;
 
 		await context.Response
-			.WriteAsync(results.ToJsonString(), cancellationToken)
+			.WriteAsync(ResponseJson.Write(results), cancellationToken)
 			.ConfigureAwait(false);
 	}
 
@@ -215,7 +215,7 @@ internal sealed class LockRouteHandler(
 		context.Response.ContentType = UpstreamRequests.LfsMediaType;
 
 		await context.Response
-			.WriteAsync(body.ToJsonString(), cancellationToken)
+			.WriteAsync(ResponseJson.Write(body), cancellationToken)
 			.ConfigureAwait(false);
 	}
 
