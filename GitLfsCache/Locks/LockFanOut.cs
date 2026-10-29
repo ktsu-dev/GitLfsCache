@@ -191,6 +191,17 @@ public sealed class LockFanOut(
 				// The whole upstream pauses, not just this item. A forge that throttled one call is
 				// describing its own state, and pushing the rest through would earn a longer ban.
 				metrics.RecordLockFanOutThrottled(key.Upstream);
+				TimeSpan ceiling = options.Value.Locks.MaxThrottlePause;
+
+				if (retryAfter > ceiling)
+				{
+					// Waiting that long would hold this request, and every other one to this upstream,
+					// far past any client's patience. Pause for the ceiling and answer this item now.
+					limiter.Throttle(key.Upstream, ceiling);
+					string refusal = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+					return Failure(target.Path, id, response.StatusCode, Describe(refusal, response.StatusCode));
+				}
+
 				limiter.Throttle(key.Upstream, retryAfter);
 				continue;
 			}

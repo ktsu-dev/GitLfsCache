@@ -20,6 +20,11 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 	/// </summary>
 	public const int RequiredKeyLengthBytes = 32;
 
+	/// <summary>
+	/// The longest <see cref="LocksOptions.MaxThrottlePause"/> may be, well inside what Task.Delay can wait.
+	/// </summary>
+	public static readonly TimeSpan MaxThrottlePauseLimit = TimeSpan.FromDays(1);
+
 	/// <inheritdoc />
 	public ValidateOptionsResult Validate(string? name, GitLfsCacheOptions options)
 	{
@@ -232,6 +237,11 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 		if (locks.MaxFanOutRetries < 0)
 		{
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:MaxFanOutRetries must not be negative.");
+		}
+
+		if (locks.MaxThrottlePause <= TimeSpan.Zero || locks.MaxThrottlePause > MaxThrottlePauseLimit)
+		{
+			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:MaxThrottlePause must be greater than zero and at most {MaxThrottlePauseLimit}.");
 		}
 	}
 

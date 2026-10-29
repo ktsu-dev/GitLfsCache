@@ -136,6 +136,34 @@ public class LockFanOutTests
 	}
 
 	[TestMethod]
+	public async Task RetryAfterBeyondTheCeiling_FailsTheItemAtOnceAndPausesOnlyForTheCeiling()
+	{
+		// About 58 days: past what Task.Delay can wait on, so an unbounded pause turned every later
+		// batch to this upstream into a 500 until restart.
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync(
+			new Dictionary<string, string?>(StringComparer.Ordinal)
+			{
+				["GitLfsCache:Locks:MaxThrottlePause"] = "00:00:01",
+			});
+
+		fixture.Upstream.ThrottleLockChanges = 1;
+		fixture.Upstream.ThrottleRetryAfterSeconds = 5000000;
+
+		JsonArray first = await ResultsOfAsync(fixture, LockBody("a.uasset"));
+
+		Assert.IsFalse(first[0]!["ok"]!.GetValue<bool>());
+		Assert.AreEqual(429, first[0]!["status"]!.GetValue<int>());
+		Assert.AreEqual(1, fixture.Upstream.LockChangeRequests, "a pause past the ceiling is not retried");
+
+		System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+		JsonArray second = await ResultsOfAsync(fixture, LockBody("b.uasset"));
+		elapsed.Stop();
+
+		Assert.IsTrue(second[0]!["ok"]!.GetValue<bool>(), "the next batch must run once the ceiling has passed");
+		Assert.IsLessThan(TimeSpan.FromSeconds(30), elapsed.Elapsed, "the next batch must not wait past the ceiling");
+	}
+
+	[TestMethod]
 	public async Task PersistentThrottling_GivesUpAndSaysSo()
 	{
 		await using ProxyFixture fixture = await ProxyFixture.StartAsync(

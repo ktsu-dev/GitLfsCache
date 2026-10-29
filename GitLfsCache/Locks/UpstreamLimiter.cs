@@ -53,7 +53,10 @@ public sealed class UpstreamLimiter(
 			return;
 		}
 
-		DateTimeOffset until = timeProvider.GetUtcNow() + duration;
+		// Capped so no caller can store a deadline that parks every request to this upstream for longer
+		// than the operator allows, or one too far out for Task.Delay to wait on at all.
+		TimeSpan ceiling = options.Value.Locks.MaxThrottlePause;
+		DateTimeOffset until = timeProvider.GetUtcNow() + (duration < ceiling ? duration : ceiling);
 
 		// Extended, never shortened. A second refusal arriving with a shorter window must not undo a
 		// longer one already in force.
