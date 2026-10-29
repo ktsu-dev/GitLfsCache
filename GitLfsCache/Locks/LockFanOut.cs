@@ -32,13 +32,15 @@ using Microsoft.Extensions.Options;
 /// <param name="refresher">Refreshes a snapshot whose ids turned out to be stale.</param>
 /// <param name="metrics">Cache counters.</param>
 /// <param name="options">The configured options.</param>
+/// <param name="timeProvider">Clock, used to turn a date-form Retry-After into a delay.</param>
 public sealed class LockFanOut(
 	IUpstreamClient upstreamClient,
 	IUpstreamLimiter limiter,
 	ILockSnapshotStore snapshots,
 	ILockListRefresher refresher,
 	CacheMetrics metrics,
-	IOptions<GitLfsCacheOptions> options)
+	IOptions<GitLfsCacheOptions> options,
+	TimeProvider timeProvider)
 {
 	/// <summary>
 	/// Runs every item of a batched request.
@@ -186,7 +188,7 @@ public sealed class LockFanOut(
 				.SendAsync(message, cancellationToken)
 				.ConfigureAwait(false);
 
-			if (TryGetThrottle(response, out TimeSpan retryAfter))
+			if (TryGetThrottle(response, timeProvider.GetUtcNow(), out TimeSpan retryAfter))
 			{
 				// The whole upstream pauses, not just this item. A forge that throttled one call is
 				// describing its own state, and pushing the rest through would earn a longer ban.
@@ -323,7 +325,14 @@ public sealed class LockFanOut(
 		return status.ToString();
 	}
 
-	private static bool TryGetThrottle(HttpResponseMessage response, out TimeSpan retryAfter)
+	/// <summary>
+	/// Reads whether an upstream answer is a throttle, and how long it asks the caller to wait.
+	/// </summary>
+	/// <param name="response">The upstream response.</param>
+	/// <param name="now">The current time, against which a date-form Retry-After is measured.</param>
+	/// <param name="retryAfter">The delay to pause for; zero for a date already past.</param>
+	/// <returns>True if the response is a 429 or 403 carrying a usable Retry-After.</returns>
+	internal static bool TryGetThrottle(HttpResponseMessage response, DateTimeOffset now, out TimeSpan retryAfter)
 	{
 		retryAfter = TimeSpan.Zero;
 
@@ -338,6 +347,14 @@ public sealed class LockFanOut(
 		if (response.Headers.RetryAfter?.Delta is TimeSpan delta)
 		{
 			retryAfter = delta;
+			return true;
+		}
+
+		// RFC 9110 also allows an HTTP-date. A date already past still means "slow down": the call is
+		// retried at once, but it goes through the limiter like any other throttle.
+		if (response.Headers.RetryAfter?.Date is DateTimeOffset date)
+		{
+			retryAfter = date > now ? date - now : TimeSpan.Zero;
 			return true;
 		}
 

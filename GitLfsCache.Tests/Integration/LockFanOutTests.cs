@@ -136,6 +136,22 @@ public class LockFanOutTests
 	}
 
 	[TestMethod]
+	public async Task Throttling_WithAnHttpDateRetryAfter_IsWaitedOutAndTheCallRetried()
+	{
+		// RFC 9110 lets Retry-After be a date rather than seconds. It is still a throttle: the call is
+		// retried, not failed outright, and the limiter is paused for every other item.
+		await using ProxyFixture fixture = await ProxyFixture.StartAsync();
+		fixture.Upstream.ThrottleLockChanges = 1;
+		fixture.Upstream.ThrottleRetryAfter = "Wed, 21 Oct 2015 07:28:00 GMT";
+
+		JsonArray results = await ResultsOfAsync(fixture, LockBody("a.uasset"));
+
+		Assert.ContainsSingle(results);
+		Assert.IsTrue(results[0]!["ok"]!.GetValue<bool>(), "the retry after a throttle must succeed");
+		Assert.AreEqual(2, fixture.Upstream.LockChangeRequests, "one throttled attempt plus one retry");
+	}
+
+	[TestMethod]
 	public async Task PersistentThrottling_GivesUpAndSaysSo()
 	{
 		await using ProxyFixture fixture = await ProxyFixture.StartAsync(
