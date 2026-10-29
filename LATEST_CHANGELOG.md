@@ -1,6 +1,6 @@
-## v1.12.7-pre.2 (prerelease)
+## v1.12.7-pre.3 (prerelease)
 
-Changes since v1.12.7-pre.1:
+Changes since v1.12.7-pre.2:
 
-- Bump MSTest.Sdk from 4.5.1 to 4.5.2 (dependabot[bot])
+- Bump Testably.Abstractions.Testing from 7.1.1 to 7.1.2 (dependabot[bot])
 
