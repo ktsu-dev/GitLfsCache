@@ -139,6 +139,17 @@ public sealed class BatchRewriter(
 		// The token carries upstream's href and header, so it can be good for no longer than they are.
 		DateTimeOffset now = timeProvider.GetUtcNow();
 		DateTimeOffset actionExpiresAt = ActionExpiry(action, now, expiresAt);
+		int actionExpiresInSeconds = actionExpiresAt < expiresAt
+			? (int)Math.Max(0, Math.Floor((actionExpiresAt - now).TotalSeconds))
+			: expiresInSeconds;
+
+		// git-lfs reads an expires_in of zero as "never expires", so a token with no whole second left
+		// would be used at once and refused. Upstream's own href is the better bet: the client re-batches
+		// on its own terms if it has lapsed.
+		if (actionExpiresInSeconds <= 0)
+		{
+			return;
+		}
 
 		string token = codec.Encode(new HrefToken
 		{
@@ -161,9 +172,7 @@ public sealed class BatchRewriter(
 		// use an upstream credential that has already expired. expires_in alone carries it, rather than
 		// leaving upstream's expires_at to disagree with it.
 		action.Remove("expires_at");
-		action["expires_in"] = actionExpiresAt < expiresAt
-			? (int)Math.Max(0, Math.Floor((actionExpiresAt - now).TotalSeconds))
-			: expiresInSeconds;
+		action["expires_in"] = actionExpiresInSeconds;
 	}
 
 	/// <summary>
@@ -212,6 +221,8 @@ public sealed class BatchRewriter(
 	/// <remarks>
 	/// Upstream's expiry is brought forward by <see cref="UpstreamExpiryMargin"/>, so a transfer that
 	/// starts just inside the advertised window still reaches upstream before its credential lapses.
+	/// When upstream has less than twice the margin left, it is brought forward by half the time left
+	/// instead, so a short-lived href still yields a token that is valid for a while.
 	/// An <c>expires_at</c> or <c>expires_in</c> of the wrong type is treated as absent.
 	/// </remarks>
 	/// <param name="action">The upstream action.</param>
@@ -228,7 +239,7 @@ public sealed class BatchRewriter(
 			&& expiresAtNode.GetValueKind() == JsonValueKind.String
 			&& expiresAtNode.TryGetValue(out DateTimeOffset upstreamExpiresAt))
 		{
-			expiry = Earliest(expiry, LessMargin(upstreamExpiresAt));
+			expiry = Earliest(expiry, LessMargin(upstreamExpiresAt, now));
 		}
 
 		if (action["expires_in"] is JsonValue expiresInNode
@@ -237,16 +248,24 @@ public sealed class BatchRewriter(
 		{
 			// Clamped so an absurd value cannot overflow the date arithmetic; anything this far out is
 			// later than the proxy lifetime anyway.
-			expiry = Earliest(expiry, LessMargin(now.AddSeconds(Math.Clamp(expiresInSeconds, int.MinValue, int.MaxValue))));
+			expiry = Earliest(expiry, LessMargin(now.AddSeconds(Math.Clamp(expiresInSeconds, int.MinValue, int.MaxValue)), now));
 		}
 
 		return expiry;
 	}
 
-	private static DateTimeOffset LessMargin(DateTimeOffset upstreamExpiry) =>
-		upstreamExpiry - DateTimeOffset.MinValue > UpstreamExpiryMargin
-			? upstreamExpiry - UpstreamExpiryMargin
-			: DateTimeOffset.MinValue;
+	private static DateTimeOffset LessMargin(DateTimeOffset upstreamExpiry, DateTimeOffset now)
+	{
+		TimeSpan remaining = upstreamExpiry - now;
+
+		if (remaining <= TimeSpan.Zero)
+		{
+			return upstreamExpiry;
+		}
+
+		TimeSpan half = remaining / 2;
+		return upstreamExpiry - (half < UpstreamExpiryMargin ? half : UpstreamExpiryMargin);
+	}
 
 	private static DateTimeOffset Earliest(DateTimeOffset first, DateTimeOffset second) =>
 		first <= second ? first : second;

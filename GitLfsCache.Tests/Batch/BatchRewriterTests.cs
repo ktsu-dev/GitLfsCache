@@ -173,13 +173,65 @@ public class BatchRewriterTests
 	}
 
 	[TestMethod]
-	public void Rewrite_UpstreamAlreadyExpired_AdvertisesZero()
+	[DataRow(",\"expires_in\":20", 10, DisplayName = "expires_in 20 s")]
+	[DataRow(",\"expires_in\":30", 15, DisplayName = "expires_in 30 s")]
+	[DataRow(",\"expires_at\":\"2026-08-18T12:00:10Z\"", 5, DisplayName = "expires_at 10 s ahead")]
+	public void Rewrite_UpstreamExpiresWithinTheMargin_IssuesALiveTokenWithAPositiveExpiry(string expiry, int expected)
+	{
+		(BatchRewriter rewriter, HrefTokenCodec codec) = Create();
+
+		JsonObject action = FirstAction(rewriter.Rewrite(DownloadBatch(expiry), Context()), "download");
+
+		Assert.AreEqual(expected, action["expires_in"]!.GetValue<int>());
+		Assert.AreEqual(Now.AddSeconds(expected), Decode(codec, action).ExpiresAt);
+	}
+
+	[TestMethod]
+	[DataRow(",\"expires_in\":0", DisplayName = "expires_in 0")]
+	[DataRow(",\"expires_in\":1", DisplayName = "expires_in 1 s")]
+	[DataRow(",\"expires_in\":-5", DisplayName = "negative expires_in")]
+	[DataRow(",\"expires_at\":\"2026-08-18T11:59:00Z\"", DisplayName = "expires_at in the past")]
+	public void Rewrite_UpstreamHasNoWholeSecondLeft_LeavesTheActionPointingAtUpstream(string expiry)
+	{
+		(BatchRewriter rewriter, _) = Create();
+		JsonNode upstream = JsonNode.Parse(
+			"""{"objects":[{"oid":"aa","size":1,"actions":{"download":{"href":"https://upstream.example/aa","header":{"Authorization":"Bearer x"}"""
+			+ expiry
+			+ "}}}]}")!;
+
+		JsonNode rewritten = rewriter.Rewrite(upstream, Context());
+
+		Assert.IsTrue(JsonNode.DeepEquals(upstream, rewritten), rewritten.ToJsonString());
+	}
+
+	[TestMethod]
+	[DataRow(0)]
+	[DataRow(1)]
+	[DataRow(2)]
+	[DataRow(3)]
+	[DataRow(10)]
+	[DataRow(31)]
+	[DataRow(59)]
+	[DataRow(60)]
+	[DataRow(61)]
+	public void Rewrite_AnyShortUpstreamExpiry_NeverAdvertisesANonPositiveExpiresIn(int seconds)
 	{
 		(BatchRewriter rewriter, _) = Create();
 
-		JsonObject action = FirstAction(rewriter.Rewrite(DownloadBatch(",\"expires_in\":10"), Context()), "download");
+		foreach (string expiry in new[]
+		{
+			$",\"expires_in\":{seconds}",
+			$",\"expires_at\":\"{Now.AddSeconds(seconds):yyyy-MM-ddTHH:mm:ssZ}\"",
+		})
+		{
+			JsonObject action = FirstAction(rewriter.Rewrite(DownloadBatch(expiry), Context()), "download");
 
-		Assert.AreEqual(0, action["expires_in"]!.GetValue<int>());
+			// An action left pointing at upstream carries upstream's own expiry, which is not the proxy's to vouch for.
+			if (action["href"]!.GetValue<string>().StartsWith("https://cache.example/", StringComparison.Ordinal))
+			{
+				Assert.IsGreaterThan(0, action["expires_in"]!.GetValue<int>(), expiry);
+			}
+		}
 	}
 
 	[TestMethod]
