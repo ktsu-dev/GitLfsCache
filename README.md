@@ -143,6 +143,7 @@ The flags are a convenience over the same settings and win over all three, so `-
 | `Locks:MaxFanOutConcurrency` | How many lock calls may be in flight against one upstream at a time, across every request in the process. The right value per forge has to be found by measurement. |
 | `Locks:MaxFanOutPaths` | The most paths one batched request may carry. Beyond this the request is refused rather than accepted and throttled part way through. |
 | `Locks:MaxFanOutRetries` | How many times a throttled lock call is retried before it is reported as failed. |
+| `Locks:MaxThrottlePause` | The longest an upstream's `Retry-After` may pause batched lock calls to it (default 60 seconds, at most one day). A call told to wait longer pauses the upstream for this long and is reported as failed at once with upstream's status. |
 | `Upstreams:<name>:Repositories` | Required. Path patterns this upstream may serve, matched against the whole path after the upstream key, with `*` inside one segment and `**` across segments. An entry normally ends in `**`, because the path continues into `info/lfs/...`. Use `**` to allow everything. |
 
 Configuration is validated at startup and the process refuses to run on a bad value, reporting every problem at once and naming the setting each came from. That includes a store root that is not writable: a cache proxy whose volume is missing looks healthy from the outside and then fails every transfer, which is worse than a pod that will not start and says why.

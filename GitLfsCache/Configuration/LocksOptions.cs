@@ -89,4 +89,14 @@ public sealed class LocksOptions
 	/// Gets or sets how many times a throttled lock call is retried before it is reported as failed.
 	/// </summary>
 	public int MaxFanOutRetries { get; set; } = 3;
+
+	/// <summary>
+	/// Gets or sets the longest an upstream's Retry-After may pause batched lock calls to it.
+	/// </summary>
+	/// <remarks>
+	/// The pause is shared by every request to that upstream, so one unbounded header could park them
+	/// all for as long as it named. A call told to wait longer than this pauses the upstream for this
+	/// long and is reported as failed at once, with upstream's status, rather than retried.
+	/// </remarks>
+	public TimeSpan MaxThrottlePause { get; set; } = TimeSpan.FromSeconds(60);
 }
