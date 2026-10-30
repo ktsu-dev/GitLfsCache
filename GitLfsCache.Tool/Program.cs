@@ -29,11 +29,18 @@ internal static class Program
 	/// <summary>The configuration key the <c>--token-key</c> flag overrides.</summary>
 	private const string TokenKeyKey = "GitLfsCache:TokenKeys:0";
 
+	/// <summary>The configuration key the <c>--port</c> flag overrides.</summary>
+	internal const string HttpEndpointUrlKey = "Kestrel:Endpoints:Http:Url";
+
+	/// <summary>The port listened on when neither <c>--port</c> nor configuration names an endpoint.</summary>
+	internal const int DefaultPort = 8080;
+
 	internal static async Task<int> Main(string[] args)
 	{
 		Option<int?> port = new("--port", "-p")
 		{
-			Description = "Port to listen on. Defaults to 8080.",
+			Description =
+				"Port to listen on. Defaults to 8080 unless configuration already names an endpoint, urls or http_ports.",
 		};
 
 		Option<string?> store = new("--store", "-s")
@@ -92,7 +99,7 @@ internal static class Program
 		root.SetAction(async (parseResult, cancellationToken) =>
 		{
 			Dictionary<string, string?> overrides = [];
-			int listenPort = parseResult.GetValue(port) ?? 8080;
+			int? listenPort = parseResult.GetValue(port);
 			string? configPath = null;
 
 			if (parseResult.GetValue(configFile) is string requestedConfig)
@@ -157,7 +164,7 @@ internal static class Program
 	private static async Task<int> RunAsync(
 		Dictionary<string, string?> overrides,
 		Dictionary<string, List<string>> allowLists,
-		int port,
+		int? port,
 		string? configPath,
 		CancellationToken cancellationToken)
 	{
@@ -178,8 +185,8 @@ internal static class Program
 		}
 
 		ApplyDefaults(builder.Configuration, overrides);
+		ApplyListenPort(builder.Configuration, overrides, port);
 		builder.Configuration.AddInMemoryCollection(overrides);
-		builder.Configuration["Kestrel:Endpoints:Http:Url"] = $"http://*:{port}";
 
 		builder.Services.AddGitLfsCache(builder.Configuration);
 		builder.Services.PostConfigure<GitLfsCacheOptions>(options => ReplaceAllowLists(options, allowLists));
@@ -364,6 +371,37 @@ internal static class Program
 			{
 				upstream.Repositories.Add(pattern);
 			}
+		}
+	}
+
+	/// <summary>
+	/// Points the HTTP endpoint at <paramref name="port"/> when the flag was given, or at
+	/// <see cref="DefaultPort"/> when configuration names no endpoint of its own.
+	/// </summary>
+	/// <remarks>
+	/// The endpoint used to be overwritten after every other source had been added, so a port or bind address
+	/// set in appsettings, a <c>--config</c> file or <c>Kestrel__Endpoints__Http__Url</c> was ignored and the
+	/// proxy always listened on every interface (issue #140).
+	/// </remarks>
+	/// <param name="configuration">Configuration from every source but the flags.</param>
+	/// <param name="overrides">The flag overrides, layered over <paramref name="configuration"/>.</param>
+	/// <param name="port">The <c>--port</c> flag, or <see langword="null"/> when it was not given.</param>
+	internal static void ApplyListenPort(IConfiguration configuration, Dictionary<string, string?> overrides, int? port)
+	{
+		if (port is int requested)
+		{
+			overrides[HttpEndpointUrlKey] = $"http://*:{requested}";
+			return;
+		}
+
+		bool hasEndpoint = configuration.GetSection("Kestrel:Endpoints").GetChildren().Any()
+			|| !string.IsNullOrWhiteSpace(configuration["urls"])
+			|| !string.IsNullOrWhiteSpace(configuration["http_ports"])
+			|| !string.IsNullOrWhiteSpace(configuration["https_ports"]);
+
+		if (!hasEndpoint)
+		{
+			overrides[HttpEndpointUrlKey] = $"http://*:{DefaultPort}";
 		}
 	}
 
