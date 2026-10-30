@@ -116,6 +116,23 @@ public class BatchRewriterTests
 	}
 
 	[TestMethod]
+	public void Rewrite_UpstreamExpiresAtIsTheZeroTime_IsTreatedAsNoExpiry()
+	{
+		// Go LFS servers emit an unset time.Time as the zero time, which git-lfs reads as no expiry.
+		(BatchRewriter rewriter, HrefTokenCodec codec) = Create();
+		JsonNode upstream = JsonNode.Parse(
+			"""{"objects":[{"oid":"aa","size":1,"actions":{"download":{"href":"https://upstream.example/aa","header":{"Authorization":"Bearer x"},"expires_at":"0001-01-01T00:00:00Z"}}}]}""")!;
+
+		JsonObject action = FirstAction(rewriter.Rewrite(upstream, Context()), "download");
+
+		Assert.StartsWith("https://cache.example/", action["href"]!.GetValue<string>());
+		Assert.IsFalse(action.ContainsKey("header"));
+		Assert.IsFalse(action.ContainsKey("expires_at"));
+		Assert.AreEqual(3600, action["expires_in"]!.GetValue<int>());
+		Assert.AreEqual(Now.AddHours(1), Decode(codec, action).ExpiresAt);
+	}
+
+	[TestMethod]
 	public void Rewrite_DropsExpiresAt()
 	{
 		(BatchRewriter rewriter, _) = Create();
