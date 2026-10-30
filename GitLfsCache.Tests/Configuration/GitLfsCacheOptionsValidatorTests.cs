@@ -309,6 +309,22 @@ public class GitLfsCacheOptionsValidatorTests
 	}
 
 	[TestMethod]
+	[DataRow(0.0, DisplayName = "zero")]
+	[DataRow(-1.0, DisplayName = "negative")]
+	[DataRow(2.0 * 24 * 60 * 60, DisplayName = "two days")]
+	public void Validate_MaxThrottlePauseOutOfRange_Fails(double seconds)
+	{
+		GitLfsCacheOptions options = Valid();
+		options.Locks.MaxThrottlePause = TimeSpan.FromSeconds(seconds);
+
+		ValidateOptionsResult result = Validate(options);
+
+		Assert.IsFalse(result.Succeeded);
+		Assert.IsNotNull(result.FailureMessage);
+		Assert.Contains("Locks:MaxThrottlePause", result.FailureMessage);
+	}
+
+	[TestMethod]
 	public void Validate_UpstreamWithNoRepositories_FailsNamingTheWildcard()
 	{
 		GitLfsCacheOptions options = Valid();
