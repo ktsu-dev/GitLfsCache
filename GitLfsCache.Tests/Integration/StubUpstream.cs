@@ -172,6 +172,12 @@ internal sealed class StubUpstream : HttpMessageHandler
 	/// <summary>Gets or sets the Retry-After a throttled lock change reports, in seconds.</summary>
 	public int ThrottleRetryAfterSeconds { get; set; } = 1;
 
+	/// <summary>
+	/// Gets or sets a raw Retry-After a throttled lock change reports instead of
+	/// <see cref="ThrottleRetryAfterSeconds"/>, such as an HTTP-date.
+	/// </summary>
+	public string? ThrottleRetryAfter { get; set; }
+
 	/// <summary>Gets how many lock changes were attempted, throttled ones included.</summary>
 	public int LockChangeRequests => Requests.Count(request =>
 		request.Path.EndsWith("/unlock", StringComparison.Ordinal)
@@ -195,7 +201,7 @@ internal sealed class StubUpstream : HttpMessageHandler
 
 				throttled.Headers.TryAddWithoutValidation(
 					"Retry-After",
-					ThrottleRetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+					ThrottleRetryAfter ?? ThrottleRetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
 				return throttled;
 			}
