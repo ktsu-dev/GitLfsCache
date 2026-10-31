@@ -46,6 +46,8 @@ public sealed class CacheMetrics : IDisposable
 	private readonly Counter<long> _lockFanOutItems;
 	private readonly Counter<long> _lockFanOutSucceeded;
 	private readonly Counter<long> _lockFanOutThrottled;
+	private readonly Histogram<long> _lockSnapshotSize;
+	private readonly Counter<long> _lockSnapshotOversize;
 
 	/// <summary>
 	/// Initializes a new instance of the <see cref="CacheMetrics"/> class.
@@ -75,6 +77,8 @@ public sealed class CacheMetrics : IDisposable
 		_lockFanOutItems = _meter.CreateCounter<long>("gitlfscache.lock_fanout_items", unit: "{call}", description: "Individual lock calls attempted as part of a batched request, including retries.");
 		_lockFanOutSucceeded = _meter.CreateCounter<long>("gitlfscache.lock_fanout_succeeded", unit: "{call}", description: "Individual lock calls upstream accepted.");
 		_lockFanOutThrottled = _meter.CreateCounter<long>("gitlfscache.lock_fanout_throttled", unit: "{call}", description: "Lock calls upstream throttled, each pausing the whole upstream.");
+		_lockSnapshotSize = _meter.CreateHistogram<long>("gitlfscache.lock_snapshot_size", unit: "{lock}", description: "Locks held by each lock listing snapshot when it is published.");
+		_lockSnapshotOversize = _meter.CreateCounter<long>("gitlfscache.lock_snapshot_oversize", unit: "{walk}", description: "Lock listing walks abandoned because the repository holds more than MaxSnapshotLocks locks.");
 	}
 
 	/// <summary>Records an object served from the store.</summary>
@@ -184,6 +188,25 @@ public sealed class CacheMetrics : IDisposable
 	/// <param name="upstream">The upstream key, recorded as a tag.</param>
 	public void RecordLockFanOutThrottled(string upstream) =>
 		_lockFanOutThrottled.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records the size of a lock listing snapshot as it is published.</summary>
+	/// <remarks>
+	/// Read against <c>Locks:MaxSnapshotLocks</c>: a repository whose snapshots approach the ceiling is
+	/// about to stop being cached, and the sizes together bound how much snapshot memory is held.
+	/// </remarks>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	/// <param name="lockCount">How many locks the snapshot holds.</param>
+	public void RecordLockSnapshotSize(string upstream, long lockCount) =>
+		_lockSnapshotSize.Record(lockCount, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records a lock listing walk abandoned because the repository is over the ceiling.</summary>
+	/// <remarks>
+	/// Anything above zero means a repository holds more than <c>Locks:MaxSnapshotLocks</c> locks, so
+	/// its listings are relayed to upstream every time instead of being cached.
+	/// </remarks>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockSnapshotOversize(string upstream) =>
+		_lockSnapshotOversize.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
 
 	/// <inheritdoc />
 	public void Dispose() => _meter.Dispose();
