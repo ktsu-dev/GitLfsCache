@@ -17,6 +17,7 @@ internal sealed class RecordingMeterFactory : IMeterFactory
 {
 	private readonly ConcurrentDictionary<Meter, byte> _meters = new();
 	private readonly ConcurrentDictionary<(string Instrument, string? Upstream), long> _totals = new();
+	private readonly ConcurrentDictionary<(string Instrument, string? Upstream), long> _counts = new();
 	private readonly MeterListener _listener = new();
 
 	public RecordingMeterFactory()
@@ -41,6 +42,7 @@ internal sealed class RecordingMeterFactory : IMeterFactory
 			}
 
 			_totals.AddOrUpdate((instrument.Name, upstream), value, (_, total) => total + value);
+			_counts.AddOrUpdate((instrument.Name, upstream), 1, (_, count) => count + 1);
 		});
 
 		_listener.Start();
@@ -52,6 +54,13 @@ internal sealed class RecordingMeterFactory : IMeterFactory
 	/// <returns>The sum of every measurement, or zero if none were recorded.</returns>
 	public long Total(string instrument, string upstream) =>
 		_totals.TryGetValue((instrument, upstream), out long total) ? total : 0;
+
+	/// <summary>How many measurements an instrument recorded for one upstream tag.</summary>
+	/// <param name="instrument">The instrument name.</param>
+	/// <param name="upstream">The upstream tag value.</param>
+	/// <returns>The number of measurements, or zero if none were recorded.</returns>
+	public long Count(string instrument, string upstream) =>
+		_counts.TryGetValue((instrument, upstream), out long count) ? count : 0;
 
 	public Meter Create(MeterOptions options)
 	{
