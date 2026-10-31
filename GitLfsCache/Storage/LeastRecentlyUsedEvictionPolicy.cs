@@ -3,6 +3,7 @@
 namespace ktsu.GitLfsCache.Storage;
 
 using ktsu.GitLfsCache.Configuration;
+using ktsu.GitLfsCache.Observability;
 using Microsoft.Extensions.Options;
 
 /// <summary>
@@ -19,9 +20,11 @@ using Microsoft.Extensions.Options;
 /// </remarks>
 /// <param name="store">The store to sweep.</param>
 /// <param name="options">The configured options, supplying the budget and low-water mark.</param>
+/// <param name="metrics">Counters recording what each sweep deleted and skipped, tagged by upstream.</param>
 public sealed class LeastRecentlyUsedEvictionPolicy(
 	IObjectStore store,
-	IOptions<GitLfsCacheOptions> options) : IEvictionPolicy
+	IOptions<GitLfsCacheOptions> options,
+	CacheMetrics metrics) : IEvictionPolicy
 {
 	/// <inheritdoc />
 	public EvictionResult Evict()
@@ -54,10 +57,12 @@ public sealed class LeastRecentlyUsedEvictionPolicy(
 			{
 				evicted++;
 				freed += candidate.Size;
+				metrics.RecordEviction(candidate.Upstream, candidate.Size);
 			}
 			else
 			{
 				skipped++;
+				metrics.RecordEvictionSkipped(candidate.Upstream);
 			}
 		}
 
