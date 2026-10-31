@@ -5,6 +5,8 @@ namespace ktsu.GitLfsCache.Tests.Locks;
 using System.Globalization;
 using ktsu.GitLfsCache.Configuration;
 using ktsu.GitLfsCache.Locks;
+using ktsu.GitLfsCache.Observability;
+using ktsu.GitLfsCache.Tests.Observability;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -17,6 +19,9 @@ public class LockSnapshotStoreTests
 
 	private static readonly TimeSpan ListTtl = TimeSpan.FromSeconds(15);
 
+	// Nothing here asserts on a measurement, so one instance shared for the whole class is enough.
+	private static readonly CacheMetrics Metrics = new(new RecordingMeterFactory());
+
 	private static (LockSnapshotStore Store, FakeTimeProvider Time) Build(int maxSnapshots = 1000)
 	{
 		GitLfsCacheOptions options = new()
@@ -26,7 +31,7 @@ public class LockSnapshotStoreTests
 
 		FakeTimeProvider time = new(new DateTimeOffset(2026, 8, 19, 9, 47, 0, TimeSpan.Zero));
 
-		return (new LockSnapshotStore(Options.Create(options), time), time);
+		return (new LockSnapshotStore(Options.Create(options), time, Metrics), time);
 	}
 
 	private static LockSnapshotKey Key(int branch) =>
