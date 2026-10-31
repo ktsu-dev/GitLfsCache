@@ -5,7 +5,9 @@ namespace ktsu.GitLfsCache.Tests.Storage;
 using System.Security.Cryptography;
 using System.Text;
 using ktsu.GitLfsCache.Configuration;
+using ktsu.GitLfsCache.Observability;
 using ktsu.GitLfsCache.Storage;
+using ktsu.GitLfsCache.Tests.Observability;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -13,15 +15,26 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Testably.Abstractions.Testing;
 
 [TestClass]
-public class EvictionTests
+public sealed class EvictionTests : IDisposable
 {
+	private readonly RecordingMeterFactory _meterFactory = new();
+	private readonly CacheMetrics _metrics;
+
+	public EvictionTests() => _metrics = new CacheMetrics(_meterFactory);
+
+	public void Dispose()
+	{
+		_metrics.Dispose();
+		_meterFactory.Dispose();
+	}
+
 	private static readonly DateTimeOffset Now = new(2026, 8, 18, 12, 0, 0, TimeSpan.Zero);
 
 	private static readonly string Root = Path.Combine(
 		Path.GetPathRoot(Path.GetTempPath()) ?? Path.DirectorySeparatorChar.ToString(),
 		"gitlfscache-eviction-tests");
 
-	private static (ObjectStore Store, LeastRecentlyUsedEvictionPolicy Policy, FakeTimeProvider Time) Create(
+	private (ObjectStore Store, LeastRecentlyUsedEvictionPolicy Policy, FakeTimeProvider Time) Create(
 		string maxSize,
 		double lowWaterMark = 0.9)
 	{
@@ -30,7 +43,7 @@ public class EvictionTests
 	}
 
 	/// <summary>Builds the store and hands back the file system, for a test that has to disturb it.</summary>
-	private static (ObjectStore Store, LeastRecentlyUsedEvictionPolicy Policy, FakeTimeProvider Time, MockFileSystem FileSystem) CreateWithFileSystem(
+	private (ObjectStore Store, LeastRecentlyUsedEvictionPolicy Policy, FakeTimeProvider Time, MockFileSystem FileSystem) CreateWithFileSystem(
 		string maxSize,
 		double lowWaterMark = 0.9)
 	{
@@ -46,7 +59,7 @@ public class EvictionTests
 		IOptions<GitLfsCacheOptions> wrapped = Options.Create(options);
 		ObjectStore store = new(fileSystem, wrapped, time, NullLogger<ObjectStore>.Instance);
 
-		return (store, new LeastRecentlyUsedEvictionPolicy(store, wrapped), time, fileSystem);
+		return (store, new LeastRecentlyUsedEvictionPolicy(store, wrapped, _metrics), time, fileSystem);
 	}
 
 	/// <summary>Stores an object of exactly the requested size and returns its object id.</summary>
@@ -159,12 +172,44 @@ public class EvictionTests
 			Store = new StoreOptions { Root = Root, MaxSize = "100B", LowWaterMark = 0.9 },
 		};
 
-		LeastRecentlyUsedEvictionPolicy policy = new(new UndeletableObjectStore(store, undeletable), Options.Create(options));
+		LeastRecentlyUsedEvictionPolicy policy = new(new UndeletableObjectStore(store, undeletable), Options.Create(options), _metrics);
 
 		EvictionResult result = policy.Evict();
 
 		Assert.AreEqual(1, result.SkippedCount);
 		Assert.IsTrue(store.Exists("github", undeletable));
+		Assert.AreEqual(1L, _meterFactory.Total("gitlfscache.eviction_skips", "github"));
+	}
+
+	[TestMethod]
+	public async Task Evict_OverBudget_RecordsTheEvictedBytesAndObjects()
+	{
+		(ObjectStore store, LeastRecentlyUsedEvictionPolicy policy, FakeTimeProvider time) = Create("300B");
+
+		for (int index = 0; index < 4; index++)
+		{
+			await StoreAsync(store, 100, (char)('a' + index));
+			time.Advance(TimeSpan.FromHours(1));
+		}
+
+		EvictionResult result = policy.Evict();
+
+		Assert.AreEqual(200L, result.EvictedBytes);
+		Assert.AreEqual(result.EvictedBytes, _meterFactory.Total("gitlfscache.bytes_evicted", "github"));
+		Assert.AreEqual(result.EvictedCount, _meterFactory.Total("gitlfscache.objects_evicted", "github"));
+		Assert.AreEqual(0L, _meterFactory.Total("gitlfscache.eviction_skips", "github"));
+	}
+
+	[TestMethod]
+	public async Task Evict_UnderBudget_RecordsNothing()
+	{
+		(ObjectStore store, LeastRecentlyUsedEvictionPolicy policy, _) = Create("1KB");
+		await StoreAsync(store, 100, 'a');
+
+		policy.Evict();
+
+		Assert.AreEqual(0L, _meterFactory.Total("gitlfscache.bytes_evicted", "github"));
+		Assert.AreEqual(0L, _meterFactory.Total("gitlfscache.objects_evicted", "github"));
 	}
 
 	[TestMethod]
