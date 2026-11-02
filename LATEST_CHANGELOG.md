@@ -1,9 +1,6 @@
-## v1.12.7 (patch)
+## v1.12.8-pre.1 (prerelease)
 
-Changes since v1.12.6:
+Changes since v1.12.7:
 
-- Merge remote-tracking branch 'origin/main' into fix/retry-after-http-date (matt-edmondson)
-- Cap the upstream throttle pause so one Retry-After cannot stall batched locking [patch] (matt-edmondson)
-- Treat an HTTP-date Retry-After as a throttle in the lock fan-out [patch] (matt-edmondson)
-- Never advertise expires_in 0 for a short-lived upstream action [patch] (matt-edmondson)
+- Bump Testably.Abstractions.Testing from 7.1.2 to 7.2.0 (dependabot[bot])
 
