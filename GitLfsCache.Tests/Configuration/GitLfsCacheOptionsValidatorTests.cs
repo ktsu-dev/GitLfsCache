@@ -325,6 +325,79 @@ public class GitLfsCacheOptionsValidatorTests
 	}
 
 	[TestMethod]
+	[DataRow("Fetch:FollowerTimeout", DisplayName = "follower timeout")]
+	[DataRow("Locks:RefreshTimeout", DisplayName = "refresh timeout")]
+	[DataRow("Store:MaintenanceInterval", DisplayName = "maintenance interval")]
+	public void Validate_TimerOptionPastWhatATimerAccepts_FailsNamingTheLimit(string setting)
+	{
+		GitLfsCacheOptions options = Valid();
+		SetTimerOption(options, setting, TimeSpan.FromDays(60));
+
+		ValidateOptionsResult result = Validate(options);
+
+		Assert.IsFalse(result.Succeeded, $"{setting} of 60 days passed validation, then throws once a timer is started with it");
+		Assert.IsNotNull(result.FailureMessage);
+		Assert.Contains(setting, result.FailureMessage);
+		Assert.Contains(LimitOf(setting).ToString(), result.FailureMessage);
+	}
+
+	[TestMethod]
+	[DataRow("Fetch:FollowerTimeout", DisplayName = "follower timeout")]
+	[DataRow("Locks:RefreshTimeout", DisplayName = "refresh timeout")]
+	[DataRow("Store:MaintenanceInterval", DisplayName = "maintenance interval")]
+	public void Validate_TimerOptionAtItsLimit_Succeeds(string setting)
+	{
+		GitLfsCacheOptions options = Valid();
+		SetTimerOption(options, setting, LimitOf(setting));
+
+		ValidateOptionsResult result = Validate(options);
+
+		Assert.IsTrue(result.Succeeded, result.FailureMessage);
+	}
+
+	[TestMethod]
+	public async Task WaitTimeoutLimit_IsAcceptedByWaitAsync()
+	{
+		TaskCompletionSource leader = new();
+		using CancellationTokenSource cancel = new();
+
+		Task follower = leader.Task.WaitAsync(GitLfsCacheOptionsValidator.MaxWaitTimeoutLimit, cancel.Token);
+		leader.SetResult();
+
+		await follower.ConfigureAwait(false);
+	}
+
+	[TestMethod]
+	public void MaintenanceIntervalLimit_IsAcceptedByPeriodicTimer()
+	{
+		using PeriodicTimer timer = new(GitLfsCacheOptionsValidator.MaxMaintenanceIntervalLimit, TimeProvider.System);
+
+		Assert.IsNotNull(timer);
+	}
+
+	private static TimeSpan LimitOf(string setting) => setting == "Store:MaintenanceInterval"
+		? GitLfsCacheOptionsValidator.MaxMaintenanceIntervalLimit
+		: GitLfsCacheOptionsValidator.MaxWaitTimeoutLimit;
+
+	private static void SetTimerOption(GitLfsCacheOptions options, string setting, TimeSpan value)
+	{
+		switch (setting)
+		{
+			case "Fetch:FollowerTimeout":
+				options.Fetch.FollowerTimeout = value;
+				break;
+			case "Locks:RefreshTimeout":
+				options.Locks.RefreshTimeout = value;
+				break;
+			case "Store:MaintenanceInterval":
+				options.Store.MaintenanceInterval = value;
+				break;
+			default:
+				throw new ArgumentOutOfRangeException(nameof(setting), setting, "Not a timer option");
+		}
+	}
+
+	[TestMethod]
 	public void Validate_UpstreamWithNoRepositories_FailsNamingTheWildcard()
 	{
 		GitLfsCacheOptions options = Valid();

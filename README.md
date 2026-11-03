@@ -133,11 +133,12 @@ The flags are a convenience over the same settings and win over all three, so `-
 | `Store:MaxSize` | Byte budget, accepting decimal (`500GB`) and binary (`500Gi`) suffixes. |
 | `Store:LowWaterMark` | The fraction of the budget a sweep reduces the store to. |
 | `Store:StagingMaxAge` | How long an orphaned staging file from a crashed write survives. |
-| `Fetch:FollowerTimeout` | How long a request waits for another request's fetch before fetching upstream itself. |
+| `Store:MaintenanceInterval` | How often the store is swept for eviction and orphaned staging files (at most about 49.7 days, the longest a timer period can be). |
+| `Fetch:FollowerTimeout` | How long a request waits for another request's fetch before fetching upstream itself (at most one day). |
 | `Locks:Enabled` | Whether the proxy terminates any part of the locking API. Set false to relay every lock route, which is what it did before this existed and the fallback if the cache is ever suspected of being wrong. |
 | `Locks:ListTtl` | How long a lock listing is served before it is refreshed. Short deliberately: see below. |
 | `Locks:AdmissionTtl` | How long an upstream authorization is trusted before it is proven again. Must be at least `ListTtl`, and startup refuses otherwise. |
-| `Locks:RefreshTimeout` | How long a request waits for another request's listing walk before walking itself. |
+| `Locks:RefreshTimeout` | How long a request waits for another request's listing walk before walking itself (at most one day). |
 | `Locks:MaxSnapshotLocks` | Above this many locks a repository is relayed rather than cached, so one enormous repository cannot consume memory without bound. |
 | `Locks:MaxSnapshots` | The most lock listings held in memory at once, one per repository and ref a client has listed. Listings older than `ListTtl` are dropped first, then the oldest of the rest. |
 | `Locks:MaxFanOutConcurrency` | How many lock calls may be in flight against one upstream at a time, across every request in the process. The right value per forge has to be found by measurement. |
