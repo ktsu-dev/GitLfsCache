@@ -386,6 +386,10 @@ internal static class Program
 	/// <param name="configuration">Configuration from every source but the flags.</param>
 	/// <param name="overrides">The flag overrides, layered over <paramref name="configuration"/>.</param>
 	/// <param name="port">The <c>--port</c> flag, or <see langword="null"/> when it was not given.</param>
+	[System.Diagnostics.CodeAnalysis.SuppressMessage(
+		"Security",
+		"S5332:Using clear-text protocols is security-sensitive",
+		Justification = "These are the proxy's own listen addresses, not requests it makes. The default endpoint has always been plain HTTP; an HTTPS endpoint is configured through Kestrel:Endpoints, which this method leaves alone.")]
 	internal static void ApplyListenPort(IConfiguration configuration, Dictionary<string, string?> overrides, int? port)
 	{
 		if (port is int requested)
