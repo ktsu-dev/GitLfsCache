@@ -1,8 +1,8 @@
-## v1.12.8-pre.1 (prerelease)
+## v1.12.8 (patch)
 
 Changes since v1.12.7:
 
-- Bump Testably.Abstractions.Testing from 7.1.2 to 7.2.0 (dependabot[bot])
+- Treat a zero-time expires_at as no expiry when rewriting batch actions [patch] (Claude)
 
 ## v1.12.7 (patch)
 
