@@ -4,6 +4,7 @@ namespace ktsu.GitLfsCache.Locks;
 
 using System.Collections.Concurrent;
 using ktsu.GitLfsCache.Configuration;
+using ktsu.GitLfsCache.Observability;
 using Microsoft.Extensions.Options;
 
 /// <summary>
@@ -24,9 +25,11 @@ using Microsoft.Extensions.Options;
 /// </remarks>
 /// <param name="options">The configured options.</param>
 /// <param name="timeProvider">Clock, injected so expiry is testable.</param>
+/// <param name="metrics">Counters recording the size of each published snapshot.</param>
 public sealed class LockSnapshotStore(
 	IOptions<GitLfsCacheOptions> options,
-	TimeProvider timeProvider) : ILockSnapshotStore
+	TimeProvider timeProvider,
+	CacheMetrics metrics) : ILockSnapshotStore
 {
 	private readonly ConcurrentDictionary<LockSnapshotKey, LockSnapshot> _snapshots = new();
 
@@ -50,6 +53,7 @@ public sealed class LockSnapshotStore(
 		Ensure.NotNull(snapshot);
 
 		_snapshots[key] = snapshot;
+		metrics.RecordLockSnapshotSize(key.Upstream, snapshot.Locks.Count);
 
 		Evict(key);
 	}

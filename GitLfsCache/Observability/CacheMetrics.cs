@@ -36,6 +36,9 @@ public sealed class CacheMetrics : IDisposable
 	private readonly Counter<long> _verificationFailures;
 	private readonly Counter<long> _stagingFailures;
 	private readonly Counter<long> _coalescedWaits;
+	private readonly Counter<long> _bytesEvicted;
+	private readonly Counter<long> _objectsEvicted;
+	private readonly Counter<long> _evictionSkips;
 	private readonly Counter<long> _rejectedTokens;
 	private readonly Counter<long> _lockListHits;
 	private readonly Counter<long> _lockRefreshes;
@@ -46,6 +49,8 @@ public sealed class CacheMetrics : IDisposable
 	private readonly Counter<long> _lockFanOutItems;
 	private readonly Counter<long> _lockFanOutSucceeded;
 	private readonly Counter<long> _lockFanOutThrottled;
+	private readonly Histogram<long> _lockSnapshotSize;
+	private readonly Counter<long> _lockSnapshotOversize;
 
 	/// <summary>
 	/// Initializes a new instance of the <see cref="CacheMetrics"/> class.
@@ -65,6 +70,9 @@ public sealed class CacheMetrics : IDisposable
 		_verificationFailures = _meter.CreateCounter<long>("gitlfscache.verification_failures", unit: ObjectUnit, description: "Transfers whose content did not hash to the expected object id.");
 		_stagingFailures = _meter.CreateCounter<long>("gitlfscache.staging_failures", unit: ObjectUnit, description: "Transfers relayed without caching because the store could not open a staging file.");
 		_coalescedWaits = _meter.CreateCounter<long>("gitlfscache.coalesced_waits", unit: RequestUnit, description: "Requests that waited for another request's fetch instead of fetching themselves.");
+		_bytesEvicted = _meter.CreateCounter<long>("gitlfscache.bytes_evicted", unit: "By", description: "Bytes deleted from the local store by eviction sweeps.");
+		_objectsEvicted = _meter.CreateCounter<long>("gitlfscache.objects_evicted", unit: ObjectUnit, description: "Objects deleted from the local store by eviction sweeps.");
+		_evictionSkips = _meter.CreateCounter<long>("gitlfscache.eviction_skips", unit: ObjectUnit, description: "Eviction candidates a sweep could not delete and left for the next sweep.");
 		_rejectedTokens = _meter.CreateCounter<long>("gitlfscache.rejected_tokens", unit: RequestUnit, description: "Requests refused because their transfer token was invalid or expired.");
 		_lockListHits = _meter.CreateCounter<long>("gitlfscache.lock_list_hits", unit: RequestUnit, description: "Lock listings answered from a snapshot without reaching upstream.");
 		_lockRefreshes = _meter.CreateCounter<long>("gitlfscache.lock_refreshes", unit: "{walk}", description: "Lock listing walks performed against upstream.");
@@ -75,6 +83,8 @@ public sealed class CacheMetrics : IDisposable
 		_lockFanOutItems = _meter.CreateCounter<long>("gitlfscache.lock_fanout_items", unit: "{call}", description: "Individual lock calls attempted as part of a batched request, including retries.");
 		_lockFanOutSucceeded = _meter.CreateCounter<long>("gitlfscache.lock_fanout_succeeded", unit: "{call}", description: "Individual lock calls upstream accepted.");
 		_lockFanOutThrottled = _meter.CreateCounter<long>("gitlfscache.lock_fanout_throttled", unit: "{call}", description: "Lock calls upstream throttled, each pausing the whole upstream.");
+		_lockSnapshotSize = _meter.CreateHistogram<long>("gitlfscache.lock_snapshot_size", unit: "{lock}", description: "Locks held by each lock listing snapshot when it is published.");
+		_lockSnapshotOversize = _meter.CreateCounter<long>("gitlfscache.lock_snapshot_oversize", unit: "{walk}", description: "Lock listing walks abandoned because the repository holds more than MaxSnapshotLocks locks.");
 	}
 
 	/// <summary>Records an object served from the store.</summary>
@@ -127,6 +137,29 @@ public sealed class CacheMetrics : IDisposable
 	/// <param name="upstream">The upstream key, recorded as a tag.</param>
 	public void RecordCoalescedWait(string upstream) =>
 		_coalescedWaits.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records an object an eviction sweep deleted.</summary>
+	/// <remarks>
+	/// Read against <see cref="RecordMiss"/>: a store that evicts roughly what it fetches is too small
+	/// for its working set, and the volume should be enlarged.
+	/// </remarks>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	/// <param name="bytes">How many bytes the object held.</param>
+	public void RecordEviction(string upstream, long bytes)
+	{
+		KeyValuePair<string, object?> tag = new("upstream", upstream);
+		_objectsEvicted.Add(1, tag);
+		_bytesEvicted.Add(bytes, tag);
+	}
+
+	/// <summary>Records an eviction candidate a sweep could not delete.</summary>
+	/// <remarks>
+	/// A count that keeps rising sweep after sweep means some objects can never be evicted, so the
+	/// store cannot get back under its budget however often it sweeps.
+	/// </remarks>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordEvictionSkipped(string upstream) =>
+		_evictionSkips.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
 
 	/// <summary>Records a refused transfer token.</summary>
 	public void RecordRejectedToken() => _rejectedTokens.Add(1);
@@ -184,6 +217,25 @@ public sealed class CacheMetrics : IDisposable
 	/// <param name="upstream">The upstream key, recorded as a tag.</param>
 	public void RecordLockFanOutThrottled(string upstream) =>
 		_lockFanOutThrottled.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records the size of a lock listing snapshot as it is published.</summary>
+	/// <remarks>
+	/// Read against <c>Locks:MaxSnapshotLocks</c>: a repository whose snapshots approach the ceiling is
+	/// about to stop being cached, and the sizes together bound how much snapshot memory is held.
+	/// </remarks>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	/// <param name="lockCount">How many locks the snapshot holds.</param>
+	public void RecordLockSnapshotSize(string upstream, long lockCount) =>
+		_lockSnapshotSize.Record(lockCount, new KeyValuePair<string, object?>("upstream", upstream));
+
+	/// <summary>Records a lock listing walk abandoned because the repository is over the ceiling.</summary>
+	/// <remarks>
+	/// Anything above zero means a repository holds more than <c>Locks:MaxSnapshotLocks</c> locks, so
+	/// its listings are relayed to upstream every time instead of being cached.
+	/// </remarks>
+	/// <param name="upstream">The upstream key, recorded as a tag.</param>
+	public void RecordLockSnapshotOversize(string upstream) =>
+		_lockSnapshotOversize.Add(1, new KeyValuePair<string, object?>("upstream", upstream));
 
 	/// <inheritdoc />
 	public void Dispose() => _meter.Dispose();

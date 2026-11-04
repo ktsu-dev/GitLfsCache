@@ -4,6 +4,7 @@ namespace ktsu.GitLfsCache.Locks;
 
 using System.Text.Json.Nodes;
 using ktsu.GitLfsCache.Configuration;
+using ktsu.GitLfsCache.Observability;
 using ktsu.GitLfsCache.Upstreams;
 using Microsoft.Extensions.Options;
 
@@ -23,10 +24,12 @@ using Microsoft.Extensions.Options;
 /// <param name="upstreamClient">Sends requests upstream.</param>
 /// <param name="options">The configured options.</param>
 /// <param name="timeProvider">Clock, injected so snapshot ages are testable.</param>
+/// <param name="metrics">Counters recording walks abandoned over the lock ceiling.</param>
 public sealed class LockListRefresher(
 	IUpstreamClient upstreamClient,
 	IOptions<GitLfsCacheOptions> options,
-	TimeProvider timeProvider) : ILockListRefresher
+	TimeProvider timeProvider,
+	CacheMetrics metrics) : ILockListRefresher
 {
 	/// <summary>
 	/// How many pages a walk may request before giving up.
@@ -121,6 +124,7 @@ public sealed class LockListRefresher(
 			// costing memory as soon as it is known to be over it.
 			if (collected.Count > maximumLocks)
 			{
+				metrics.RecordLockSnapshotOversize(key.Upstream);
 				return LockRefreshResult.TooLarge(collected.Count);
 			}
 
