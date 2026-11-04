@@ -2,6 +2,7 @@
 
 Changes since v1.12.0:
 
+- Keep a configured Kestrel endpoint unless --port is given [patch] (#141) (matt-edmondson)
 - Refuse a follower timeout, refresh timeout or maintenance interval a timer can't hold [patch] (#151) (matt-edmondson)
 - Record each lock snapshot's size and count walks over the lock ceiling [minor] (#145) (matt-edmondson)
 - Count the bytes and objects each eviction sweep deletes [minor] (#144) (matt-edmondson)
