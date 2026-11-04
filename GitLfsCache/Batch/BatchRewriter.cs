@@ -223,7 +223,9 @@ public sealed class BatchRewriter(
 	/// starts just inside the advertised window still reaches upstream before its credential lapses.
 	/// When upstream has less than twice the margin left, it is brought forward by half the time left
 	/// instead, so a short-lived href still yields a token that is valid for a while.
-	/// An <c>expires_at</c> or <c>expires_in</c> of the wrong type is treated as absent.
+	/// An <c>expires_at</c> or <c>expires_in</c> of the wrong type is treated as absent, and so is an
+	/// <c>expires_at</c> of the zero time (<c>0001-01-01T00:00:00Z</c>), which Go servers emit for an unset
+	/// expiry and which the git-lfs client reads as no expiry.
 	/// </remarks>
 	/// <param name="action">The upstream action.</param>
 	/// <param name="now">The current time.</param>
@@ -237,7 +239,8 @@ public sealed class BatchRewriter(
 		// specification gives expires_at.
 		if (action["expires_at"] is JsonValue expiresAtNode
 			&& expiresAtNode.GetValueKind() == JsonValueKind.String
-			&& expiresAtNode.TryGetValue(out DateTimeOffset upstreamExpiresAt))
+			&& expiresAtNode.TryGetValue(out DateTimeOffset upstreamExpiresAt)
+			&& upstreamExpiresAt != DateTimeOffset.MinValue)
 		{
 			expiry = Earliest(expiry, LessMargin(upstreamExpiresAt, now));
 		}
