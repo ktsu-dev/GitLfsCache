@@ -210,6 +210,41 @@ public class UpstreamRequestsTests
 	}
 
 	[TestMethod]
+	public void BuildVerifyRequest_AnAcceptInTheActionHeadersReplacesTheDefaultRatherThanDuplicatingIt()
+	{
+		// Gitea's verify action carries Accept, and Gitea refuses "Accept: x, x" with 415.
+		HrefToken token = Token(TokenAction.Verify) with
+		{
+			UpstreamHeaders = new Dictionary<string, string>
+			{
+				["Accept"] = UpstreamRequests.LfsMediaType,
+				["Authorization"] = "Basic upstream-secret",
+			},
+		};
+
+		using HttpRequestMessage request = UpstreamRequests.BuildVerifyRequest(token, Body());
+
+		Assert.AreEqual(UpstreamRequests.LfsMediaType, request.Headers.GetValues("Accept").Single());
+		Assert.AreEqual("Basic upstream-secret", request.Headers.GetValues("Authorization").Single());
+	}
+
+	[TestMethod]
+	public void BuildVerifyRequest_AContentTypeInTheActionHeadersReplacesTheDefault()
+	{
+		HrefToken token = Token(TokenAction.Verify) with
+		{
+			UpstreamHeaders = new Dictionary<string, string>
+			{
+				["Content-Type"] = "application/json",
+			},
+		};
+
+		using HttpRequestMessage request = UpstreamRequests.BuildVerifyRequest(token, Body());
+
+		Assert.AreEqual("application/json", request.Content!.Headers.GetValues("Content-Type").Single());
+	}
+
+	[TestMethod]
 	public void BuildRelayRequest_JoinsThePathAndQuery()
 	{
 		using HttpRequestMessage request = UpstreamRequests.BuildRelayRequest(
