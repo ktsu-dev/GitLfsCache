@@ -25,6 +25,22 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 	/// </summary>
 	public static readonly TimeSpan MaxThrottlePauseLimit = TimeSpan.FromDays(1);
 
+	/// <summary>
+	/// The longest <see cref="FetchOptions.FollowerTimeout"/> and <see cref="LocksOptions.RefreshTimeout"/>
+	/// may be. Both are handed to <see cref="Task.WaitAsync(TimeSpan, CancellationToken)"/>, which throws
+	/// for anything over about 49.7 days, so a longer value passed validation and then failed every
+	/// request that had to wait (ktsu-dev/GitLfsCache#149). A day is already far longer than any fetch
+	/// or listing walk should take.
+	/// </summary>
+	public static readonly TimeSpan MaxWaitTimeoutLimit = TimeSpan.FromDays(1);
+
+	/// <summary>
+	/// The longest <see cref="StoreOptions.MaintenanceInterval"/> may be: the longest period a
+	/// <see cref="PeriodicTimer"/> accepts. A longer one made the maintenance service fault as it
+	/// started, which stops the host (ktsu-dev/GitLfsCache#149).
+	/// </summary>
+	public static readonly TimeSpan MaxMaintenanceIntervalLimit = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
+
 	/// <inheritdoc />
 	public ValidateOptionsResult Validate(string? name, GitLfsCacheOptions options)
 	{
@@ -175,17 +191,17 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 			failures.Add($"{GitLfsCacheOptions.SectionName}:Store:StagingMaxAge must be greater than zero.");
 		}
 
-		if (store.MaintenanceInterval <= TimeSpan.Zero)
+		if (store.MaintenanceInterval <= TimeSpan.Zero || store.MaintenanceInterval > MaxMaintenanceIntervalLimit)
 		{
-			failures.Add($"{GitLfsCacheOptions.SectionName}:Store:MaintenanceInterval must be greater than zero.");
+			failures.Add($"{GitLfsCacheOptions.SectionName}:Store:MaintenanceInterval must be greater than zero and at most {MaxMaintenanceIntervalLimit}.");
 		}
 	}
 
 	private static void ValidateFetch(FetchOptions fetch, List<string> failures)
 	{
-		if (fetch.FollowerTimeout <= TimeSpan.Zero)
+		if (fetch.FollowerTimeout <= TimeSpan.Zero || fetch.FollowerTimeout > MaxWaitTimeoutLimit)
 		{
-			failures.Add($"{GitLfsCacheOptions.SectionName}:Fetch:FollowerTimeout must be greater than zero.");
+			failures.Add($"{GitLfsCacheOptions.SectionName}:Fetch:FollowerTimeout must be greater than zero and at most {MaxWaitTimeoutLimit}.");
 		}
 	}
 
@@ -209,9 +225,9 @@ public sealed class GitLfsCacheOptionsValidator : IValidateOptions<GitLfsCacheOp
 				$"{GitLfsCacheOptions.SectionName}:Locks:ListTtl ({locks.ListTtl}) must not exceed Locks:AdmissionTtl ({locks.AdmissionTtl}), or a listing could outlive the authorization that permits reading it.");
 		}
 
-		if (locks.RefreshTimeout <= TimeSpan.Zero)
+		if (locks.RefreshTimeout <= TimeSpan.Zero || locks.RefreshTimeout > MaxWaitTimeoutLimit)
 		{
-			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:RefreshTimeout must be greater than zero.");
+			failures.Add($"{GitLfsCacheOptions.SectionName}:Locks:RefreshTimeout must be greater than zero and at most {MaxWaitTimeoutLimit}.");
 		}
 
 		if (locks.MaxSnapshotLocks <= 0)
