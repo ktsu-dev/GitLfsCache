@@ -3,6 +3,7 @@
 namespace ktsu.GitLfsCache.Tool;
 
 using System.CommandLine;
+using System.Net;
 using System.Security.Cryptography;
 using ktsu.Essentials;
 using ktsu.GitLfsCache.Configuration;
@@ -101,6 +102,13 @@ internal static class Program
 			Dictionary<string, string?> overrides = [];
 			int? listenPort = parseResult.GetValue(port);
 			string? configPath = null;
+
+			// Checked here rather than left to Kestrel, which refuses the port only when it binds, with
+			// a stack trace that names neither the flag nor the valid range.
+			if (InvalidListenPortMessage(listenPort) is string invalidPort)
+			{
+				return await FailAsync(invalidPort).ConfigureAwait(false);
+			}
 
 			if (parseResult.GetValue(configFile) is string requestedConfig)
 			{
@@ -291,6 +299,17 @@ internal static class Program
 
 		return true;
 	}
+
+	/// <summary>
+	/// Describes what is wrong with a <c>--port</c> value, or returns <see langword="null"/> when there is
+	/// nothing wrong with it.
+	/// </summary>
+	/// <param name="port">The <c>--port</c> flag, or <see langword="null"/> when it was not given.</param>
+	/// <returns>The one-line error to report, or <see langword="null"/> for an absent or valid port.</returns>
+	internal static string? InvalidListenPortMessage(int? port) =>
+		port is int requested and (< IPEndPoint.MinPort or > IPEndPoint.MaxPort)
+			? $"--port must be between {IPEndPoint.MinPort} and {IPEndPoint.MaxPort}, but was {requested}."
+			: null;
 
 	/// <summary>
 	/// Resolves the <c>--store</c> flag against the working directory.
