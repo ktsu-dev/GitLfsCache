@@ -225,7 +225,10 @@ public sealed class BatchRewriter(
 	/// instead, so a short-lived href still yields a token that is valid for a while.
 	/// An <c>expires_at</c> or <c>expires_in</c> of the wrong type is treated as absent, and so is an
 	/// <c>expires_at</c> of the zero time (<c>0001-01-01T00:00:00Z</c>), which Go servers emit for an unset
-	/// expiry and which the git-lfs client reads as no expiry.
+	/// expiry and which the git-lfs client reads as no expiry. An <c>expires_in</c> of exactly zero is
+	/// treated as absent for the same reason: git-lfs reads it as unset and falls back to
+	/// <c>expires_at</c>, and a Go server with a non-<c>omitempty</c> field sends it for no expiry. A
+	/// negative <c>expires_in</c> still means the href has already expired.
 	/// </remarks>
 	/// <param name="action">The upstream action.</param>
 	/// <param name="now">The current time.</param>
@@ -247,7 +250,8 @@ public sealed class BatchRewriter(
 
 		if (action["expires_in"] is JsonValue expiresInNode
 			&& expiresInNode.GetValueKind() == JsonValueKind.Number
-			&& expiresInNode.TryGetValue(out long expiresInSeconds))
+			&& expiresInNode.TryGetValue(out long expiresInSeconds)
+			&& expiresInSeconds != 0)
 		{
 			// Clamped so an absurd value cannot overflow the date arithmetic; anything this far out is
 			// later than the proxy lifetime anyway.

@@ -133,6 +133,23 @@ public class BatchRewriterTests
 	}
 
 	[TestMethod]
+	public void Rewrite_UpstreamExpiresInIsZero_IsTreatedAsNoExpiry()
+	{
+		// git-lfs reads an expires_in of zero as unset, and a Go server with a non-omitempty field sends
+		// it for no expiry, so it must not leave the action, and its credential, pointing at upstream.
+		(BatchRewriter rewriter, HrefTokenCodec codec) = Create();
+		JsonNode upstream = JsonNode.Parse(
+			"""{"objects":[{"oid":"aa","size":1,"actions":{"download":{"href":"https://upstream.example/aa","header":{"Authorization":"Bearer x"},"expires_in":0}}}]}""")!;
+
+		JsonObject action = FirstAction(rewriter.Rewrite(upstream, Context()), "download");
+
+		Assert.StartsWith("https://cache.example/", action["href"]!.GetValue<string>());
+		Assert.IsFalse(action.ContainsKey("header"));
+		Assert.AreEqual(3600, action["expires_in"]!.GetValue<int>());
+		Assert.AreEqual(Now.AddHours(1), Decode(codec, action).ExpiresAt);
+	}
+
+	[TestMethod]
 	public void Rewrite_DropsExpiresAt()
 	{
 		(BatchRewriter rewriter, _) = Create();
@@ -147,6 +164,7 @@ public class BatchRewriterTests
 	[DataRow(",\"expires_at\":\"2026-08-18T12:10:00Z\"", DisplayName = "expires_at")]
 	[DataRow(",\"expires_in\":600,\"expires_at\":\"2026-08-18T13:30:00Z\"", DisplayName = "expires_in sooner than expires_at")]
 	[DataRow(",\"expires_in\":5400,\"expires_at\":\"2026-08-18T12:10:00Z\"", DisplayName = "expires_at sooner than expires_in")]
+	[DataRow(",\"expires_in\":0,\"expires_at\":\"2026-08-18T12:10:00Z\"", DisplayName = "expires_in 0 defers to expires_at")]
 	public void Rewrite_UpstreamExpiresSooner_TokenAndExpiresInFollowUpstream(string expiry)
 	{
 		(BatchRewriter rewriter, HrefTokenCodec codec, FakeTimeProvider time) = CreateWithClock();
@@ -204,7 +222,6 @@ public class BatchRewriterTests
 	}
 
 	[TestMethod]
-	[DataRow(",\"expires_in\":0", DisplayName = "expires_in 0")]
 	[DataRow(",\"expires_in\":1", DisplayName = "expires_in 1 s")]
 	[DataRow(",\"expires_in\":-5", DisplayName = "negative expires_in")]
 	[DataRow(",\"expires_at\":\"2026-08-18T11:59:00Z\"", DisplayName = "expires_at in the past")]
