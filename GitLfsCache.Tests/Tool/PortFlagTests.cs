@@ -49,6 +49,42 @@ public class PortFlagTests
 	}
 
 	[TestMethod]
+	[DataRow(65536)]
+	[DataRow(70000)]
+	[DataRow(int.MaxValue)]
+	[DataRow(-1)]
+	[DataRow(int.MinValue)]
+	public void Flag_OutOfRange_IsRefusedWithOneLineNamingTheFlag(int port)
+	{
+		// An out-of-range port used to pass the flag checks and abort startup with a Kestrel
+		// ArgumentOutOfRangeException stack trace (issue #154).
+		Assert.AreEqual($"--port must be between 0 and 65535, but was {port}.", Program.InvalidListenPortMessage(port));
+	}
+
+	[TestMethod]
+	[DataRow(0)]
+	[DataRow(8080)]
+	[DataRow(65535)]
+	public void Flag_InRange_IsAccepted(int port)
+	{
+		Assert.IsNull(Program.InvalidListenPortMessage(port));
+	}
+
+	[TestMethod]
+	public void NoFlag_IsAccepted()
+	{
+		Assert.IsNull(Program.InvalidListenPortMessage(null));
+	}
+
+	[TestMethod]
+	public async Task Flag_OutOfRange_FailsBeforeAServerStarts()
+	{
+		int exitCode = await Program.Main(["--port", "70000"]);
+
+		Assert.AreEqual(1, exitCode);
+	}
+
+	[TestMethod]
 	public void NoFlag_NoConfiguredEndpoint_DefaultsTo8080()
 	{
 		Assert.AreEqual("http://*:8080", ResolveEndpoint(null, []));
