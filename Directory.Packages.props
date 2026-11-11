@@ -9,7 +9,7 @@
     <PackageVersion Include="ktsu.Essentials.FileSystemProviders.Native" Version="2.11.0" />
     <PackageVersion Include="ktsu.Semantics.Paths" Version="6.0.0" />
     <PackageVersion Include="ktsu.Semantics.Strings" Version="6.0.0" />
-    <PackageVersion Include="Testably.Abstractions.FileSystem.Interface" Version="10.4.0" />
+    <PackageVersion Include="Testably.Abstractions.FileSystem.Interface" Version="11.0.0" />
     <PackageVersion Include="System.CommandLine" Version="3.0.0" />
   </ItemGroup>
   <ItemGroup Label="Test only">
