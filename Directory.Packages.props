@@ -13,7 +13,7 @@
     <PackageVersion Include="System.CommandLine" Version="3.0.0" />
   </ItemGroup>
   <ItemGroup Label="Test only">
-    <PackageVersion Include="Testably.Abstractions.Testing" Version="7.2.0" />
+    <PackageVersion Include="Testably.Abstractions.Testing" Version="8.0.0" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="11.0.0" />
     <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.15" />
   </ItemGroup>
