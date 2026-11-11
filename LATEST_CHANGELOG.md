@@ -2,6 +2,8 @@
 
 Changes since v1.12.0:
 
+- Refuse an out-of-range --port with one line instead of a Kestrel stack trace [patch] (#155) (matt-edmondson)
+- Rewrite an action whose upstream expires_in is 0, as git-lfs reads it as unset [patch] (#157) (matt-edmondson)
 - Keep a configured Kestrel endpoint unless --port is given [patch] (#141) (matt-edmondson)
 - Refuse a follower timeout, refresh timeout or maintenance interval a timer can't hold [patch] (#151) (matt-edmondson)
 - Record each lock snapshot's size and count walks over the lock ceiling [minor] (#145) (matt-edmondson)
