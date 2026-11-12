@@ -12,6 +12,8 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 /// <summary>
 /// Entry point for the gitlfscache host.
@@ -196,6 +198,8 @@ internal static class Program
 		ApplyListenPort(builder.Configuration, overrides, port);
 		builder.Configuration.AddInMemoryCollection(overrides);
 
+		KeepTransferTokensOutOfLogs(builder.Logging);
+
 		builder.Services.AddGitLfsCache(builder.Configuration);
 		builder.Services.PostConfigure<GitLfsCacheOptions>(options => ReplaceAllowLists(options, allowLists));
 
@@ -220,6 +224,25 @@ internal static class Program
 		await app.RunAsync(cancellationToken).ConfigureAwait(false);
 		return 0;
 	}
+
+	/// <summary>The logging category ASP.NET Core writes "Request starting" and "Request finished" under.</summary>
+	internal const string RequestLoggingCategory = "Microsoft.AspNetCore.Hosting.Diagnostics";
+
+	/// <summary>
+	/// Keeps ASP.NET Core's per-request log lines, which carry the full request URL, below the level
+	/// that is written.
+	/// </summary>
+	/// <remarks>
+	/// A transfer URL carries its token in the <c>t</c> query parameter, and that token alone is enough
+	/// to download the object, or upload to upstream with the credential sealed in it, until it expires.
+	/// The shipped appsettings.json lowers <c>Microsoft.AspNetCore</c> to Warning, but it is read only
+	/// from the working directory, so a tool run from anywhere else logged every token (issue #167).
+	/// This is set in code so it holds whatever configuration is or isn't found. It is more specific
+	/// than <c>Microsoft.AspNetCore</c> and registered after configuration, so it wins over both.
+	/// </remarks>
+	/// <param name="logging">The host's logging builder.</param>
+	internal static void KeepTransferTokensOutOfLogs(ILoggingBuilder logging) =>
+		logging.AddFilter(RequestLoggingCategory, LogLevel.Warning);
 
 	/// <summary>
 	/// Fills in the values a local run should not have to supply.
