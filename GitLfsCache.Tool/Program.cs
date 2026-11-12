@@ -169,6 +169,29 @@ internal static class Program
 			.ConfigureAwait(false);
 	}
 
+	/// <summary>The host setting that decides whether the default appsettings.json sources reload on change.</summary>
+	internal const string ReloadConfigOnChangeKey = "hostBuilder:reloadConfigOnChange";
+
+	/// <summary>
+	/// The options the tool's host is built with.
+	/// </summary>
+	/// <remarks>
+	/// The command line is parsed by System.CommandLine, not by the configuration provider, so the
+	/// friendly flags above are not also read as configuration keys. The only argument the host sees is
+	/// the one that turns off reloading appsettings.json on change. The content root is the working
+	/// directory, and on Linux the watch behind that reload puts an inotify watch on every directory
+	/// beneath it, whether or not appsettings.json exists. Run from a home directory, or with a store
+	/// under the working directory, that used up the user's whole watch limit and broke file watching
+	/// for everything else they ran (issue #166). The <c>--config</c> file is already loaded without
+	/// reload, and nothing here needs configuration to change while the proxy runs.
+	/// </remarks>
+	/// <returns>The options for <see cref="WebApplication.CreateBuilder(WebApplicationOptions)"/>.</returns>
+	internal static WebApplicationOptions HostOptions() => new()
+	{
+		Args = [$"--{ReloadConfigOnChangeKey}=false"],
+		ApplicationName = "ktsu.GitLfsCache",
+	};
+
 	private static async Task<int> RunAsync(
 		Dictionary<string, string?> overrides,
 		Dictionary<string, List<string>> allowLists,
@@ -214,29 +237,6 @@ internal static class Program
 		await app.RunAsync(cancellationToken).ConfigureAwait(false);
 		return 0;
 	}
-
-	/// <summary>The host setting that decides whether the default appsettings.json sources reload on change.</summary>
-	internal const string ReloadConfigOnChangeKey = "hostBuilder:reloadConfigOnChange";
-
-	/// <summary>
-	/// The options the tool's host is built with.
-	/// </summary>
-	/// <remarks>
-	/// The command line is parsed by System.CommandLine, not by the configuration provider, so the
-	/// friendly flags above are not also read as configuration keys. The only argument the host sees is
-	/// the one that turns off reloading appsettings.json on change. The content root is the working
-	/// directory, and on Linux the watch behind that reload puts an inotify watch on every directory
-	/// beneath it, whether or not appsettings.json exists. Run from a home directory, or with a store
-	/// under the working directory, that used up the user's whole watch limit and broke file watching
-	/// for everything else they ran (issue #166). The <c>--config</c> file is already loaded without
-	/// reload, and nothing here needs configuration to change while the proxy runs.
-	/// </remarks>
-	/// <returns>The options for <see cref="WebApplication.CreateBuilder(WebApplicationOptions)"/>.</returns>
-	internal static WebApplicationOptions HostOptions() => new()
-	{
-		Args = [$"--{ReloadConfigOnChangeKey}=false"],
-		ApplicationName = "ktsu.GitLfsCache",
-	};
 
 	/// <summary>
 	/// Fills in the values a local run should not have to supply.
