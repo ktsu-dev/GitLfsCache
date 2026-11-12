@@ -1,12 +1,13 @@
 // Copyright (c) 2023-2026 ktsu-dev contributors
 
-namespace ktsu.GitLfsCache.Tests.Tool;
+namespace ktsu.GitLfsCache.Tests.Observability;
 
 using System.Collections.Concurrent;
-using ktsu.GitLfsCache.Tool;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 [TestClass]
@@ -39,8 +40,28 @@ public class RequestLoggingTests
 			string.Join(Environment.NewLine, messages));
 	}
 
+	[TestMethod]
+	public void AddGitLfsCache_KeepsRequestLoggingBelowInformation()
+	{
+		// The filter is part of the proxy's registration, so the tool and the container both get it,
+		// even when configuration asks for ASP.NET Core's request logs.
+		IConfiguration configuration = new ConfigurationBuilder()
+			.AddInMemoryCollection(new Dictionary<string, string?> { ["Logging:LogLevel:Microsoft.AspNetCore"] = "Information" })
+			.Build();
+		using RecordingLoggerProvider records = new();
+		ServiceCollection services = new();
+		services.AddLogging(logging => logging.AddConfiguration(configuration.GetSection("Logging")).AddProvider(records));
+		services.AddGitLfsCache(configuration);
+
+		using ServiceProvider provider = services.BuildServiceProvider();
+		ILoggerFactory factory = provider.GetRequiredService<ILoggerFactory>();
+
+		Assert.IsFalse(factory.CreateLogger(GitLfsCacheServiceCollectionExtensions.RequestLoggingCategory).IsEnabled(LogLevel.Information));
+		Assert.IsTrue(factory.CreateLogger("Microsoft.AspNetCore.Routing").IsEnabled(LogLevel.Information), "Only the request lines should be filtered.");
+	}
+
 	/// <summary>
-	/// Starts a host the way the tool configures its logging, from a content root with no
+	/// Starts a host with the proxy's request logging filter, from a content root with no
 	/// appsettings.json, sends one request for a transfer URL, and returns every message it logged.
 	/// </summary>
 	private static async Task<IReadOnlyCollection<string>> LogOneTransferRequestAsync(Dictionary<string, string?>? configuration)
@@ -61,7 +82,7 @@ public class RequestLoggingTests
 			}
 
 			builder.WebHost.UseTestServer();
-			Program.KeepTransferTokensOutOfLogs(builder.Logging);
+			GitLfsCacheServiceCollectionExtensions.KeepTransferTokensOutOfLogs(builder.Services);
 			builder.Logging.AddProvider(records);
 
 			await using WebApplication app = builder.Build();

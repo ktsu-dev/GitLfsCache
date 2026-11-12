@@ -17,6 +17,8 @@ using ktsu.GitLfsCache.Tokens;
 using ktsu.GitLfsCache.Upstreams;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 using Microsoft.Extensions.Options;
 
 /// <summary>
@@ -44,6 +46,8 @@ public static class GitLfsCacheServiceCollectionExtensions
 		services.AddSingleton<IValidateOptions<GitLfsCacheOptions>, GitLfsCacheOptionsValidator>();
 
 		services.TryAddTimeProvider();
+
+		KeepTransferTokensOutOfLogs(services);
 
 		// The store depends on IFileSystem rather than the Essentials marker interface, so a mock
 		// filesystem can stand in during tests. The Essentials native provider supplies it at runtime.
@@ -130,4 +134,23 @@ public static class GitLfsCacheServiceCollectionExtensions
 	private static void AddHostedService<THostedService>(this IServiceCollection services)
 		where THostedService : class, Microsoft.Extensions.Hosting.IHostedService =>
 		services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService, THostedService>();
+
+	/// <summary>The logging category ASP.NET Core writes "Request starting" and "Request finished" under.</summary>
+	internal const string RequestLoggingCategory = "Microsoft.AspNetCore.Hosting.Diagnostics";
+
+	/// <summary>
+	/// Keeps ASP.NET Core's per-request log lines, which carry the full request URL, below the level
+	/// that is written.
+	/// </summary>
+	/// <remarks>
+	/// A transfer URL carries its token in the <c>t</c> query parameter, and that token alone is enough
+	/// to download the object, or upload to upstream with the credential sealed in it, until it expires.
+	/// The shipped appsettings.json lowers <c>Microsoft.AspNetCore</c> to Warning, but the tool reads it
+	/// only from the working directory, so a tool run from anywhere else logged every token (issue #167).
+	/// This is set in code so it holds whatever configuration is or isn't found. It is more specific
+	/// than <c>Microsoft.AspNetCore</c> and registered after the host's configuration, so it wins over both.
+	/// </remarks>
+	/// <param name="services">The service collection.</param>
+	internal static void KeepTransferTokensOutOfLogs(IServiceCollection services) =>
+		services.AddLogging(logging => logging.AddFilter(RequestLoggingCategory, LogLevel.Warning));
 }
