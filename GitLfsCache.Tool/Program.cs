@@ -192,7 +192,7 @@ internal static class Program
 		ApplicationName = "ktsu.GitLfsCache",
 	};
 
-	private static async Task<int> RunAsync(
+	internal static async Task<int> RunAsync(
 		Dictionary<string, string?> overrides,
 		Dictionary<string, List<string>> allowLists,
 		int? port,
