@@ -1,6 +1,7 @@
-## v1.13.1-pre.2 (prerelease)
+## v1.13.1 (patch)
 
-Changes since v1.13.1-pre.1:
+Changes since v1.13.0:
 
-- Bump MSTest.Sdk from 4.5.2 to 4.5.3 (dependabot[bot])
+- Keep transfer URL tokens out of the request logs [patch] (#170) (matt-edmondson)
+- Stop the tool watching its working directory for appsettings.json changes [patch] (#171) (matt-edmondson)
 
