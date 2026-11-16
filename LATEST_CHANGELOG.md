@@ -1,7 +1,6 @@
-## v1.13.1 (patch)
+## v1.13.2-pre.1 (prerelease)
 
-Changes since v1.13.0:
+Changes since v1.13.1:
 
-- Keep transfer URL tokens out of the request logs [patch] (#170) (matt-edmondson)
-- Stop the tool watching its working directory for appsettings.json changes [patch] (#171) (matt-edmondson)
+- Bump the ktsu group with 4 updates (dependabot[bot])
 
