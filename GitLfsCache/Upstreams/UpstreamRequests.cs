@@ -350,6 +350,20 @@ public static class UpstreamRequests
 				continue;
 			}
 
+			// The action's header map is what upstream asked to be sent, so a value it carries replaces
+			// any default set when the request was built rather than becoming a second value of the
+			// same header. Gitea, for one, puts Accept in every verify action and answers the combined
+			// "Accept: application/vnd.git-lfs+json, application/vnd.git-lfs+json" with 415.
+			// NonValidated.Contains never throws, so it also tells which collection may hold the name.
+			if (request.Headers.NonValidated.Contains(name))
+			{
+				request.Headers.Remove(name);
+			}
+			else if (request.Content?.Headers.NonValidated.Contains(name) == true)
+			{
+				request.Content.Headers.Remove(name);
+			}
+
 			if (!request.Headers.TryAddWithoutValidation(name, value))
 			{
 				request.Content?.Headers.TryAddWithoutValidation(name, value);
